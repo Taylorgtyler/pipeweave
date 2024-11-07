@@ -112,7 +112,7 @@ class Pipeline:
 
     def run(self, input_data: Any = None) -> Dict[str, Any]:
         """Execute the pipeline with the given input data.
-        
+
         This method executes all steps in the pipeline in dependency order, passing data
         between steps and handling any errors that occur during execution.
 
@@ -151,7 +151,11 @@ class Pipeline:
                         dep_data = {step.inputs[0]: dep_data[step.inputs[0]]}
 
                 if current_data is not None:
-                    input_dict = {step.inputs[0]: current_data} if isinstance(current_data, (int, float, str)) else current_data
+                    input_dict = (
+                        {step.inputs[0]: current_data}
+                        if isinstance(current_data, (int, float, str))
+                        else current_data
+                    )
                     dep_data.update(input_dict)
 
                 current_data = step.execute(dep_data)
@@ -174,7 +178,6 @@ class Pipeline:
             )
             raise
 
-
     def reset(self) -> None:
         """Reset the pipeline to its initial state.
 
@@ -186,7 +189,7 @@ class Pipeline:
         self.results.clear()
         for step in self.steps.values():
             step.reset()
-    
+
     def save(self, storage: StorageBackend) -> None:
         """Save pipeline to storage backend.
 
