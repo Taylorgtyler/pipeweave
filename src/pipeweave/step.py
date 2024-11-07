@@ -28,6 +28,9 @@ class Step:
         """Execute the step with the provided input data."""
         try:
             self.state = State.RUNNING
+            # Extract the value if it's a dictionary with a single input
+            if isinstance(data, dict) and len(self.inputs) == 1:
+                data = data[self.inputs[0]]
             result = self.function(data)
             self.state = State.COMPLETED
             return result

@@ -112,18 +112,20 @@ class Pipeline:
 
     def run(self, input_data: Any = None) -> Dict[str, Any]:
         """Execute the pipeline with the given input data.
-
-        This method executes all steps in the pipeline in the correct order based on dependencies.
-        Results from each step are stored and passed to dependent steps as needed.
+        
+        This method executes all steps in the pipeline in dependency order, passing data
+        between steps and handling any errors that occur during execution.
 
         Args:
-            input_data (Any, optional): Initial input data to be passed to the first step. Defaults to None.
+            input_data (Any, optional): Initial input data to pass to the pipeline. Defaults to None.
 
         Returns:
-            Dict[str, Any]: Dictionary containing the results of all steps, with step names as keys
+            Dict[str, Any]: Dictionary containing the results of all pipeline steps, with step names as keys
+                           and their outputs as values.
 
         Raises:
-            Exception: Any exception that occurs during step execution is propagated after updating states
+            ValueError: If a circular dependency is detected in the pipeline
+            Exception: If any step fails during execution, the original exception is re-raised
         """
         self.state = State.RUNNING
         current_data = input_data
@@ -136,6 +138,8 @@ class Pipeline:
                 self.logger.info(f"Executing step: {step.name}")
 
                 # Prepare input data based on dependencies and inputs
+                dep_data = {}
+
                 if step.dependencies:
                     dep_data = {
                         output: self.results[dep][output]
@@ -143,17 +147,19 @@ class Pipeline:
                         for output in self.steps[dep].outputs
                         if output in step.inputs
                     }
-                    if current_data is not None:
-                        dep_data.update(current_data)
-                    current_data = step.execute(dep_data)
-                else:
-                    current_data = step.execute(current_data)
+                    if len(step.inputs) == 1 and step.inputs[0] in dep_data:
+                        dep_data = {step.inputs[0]: dep_data[step.inputs[0]]}
+
+                if current_data is not None:
+                    input_dict = {step.inputs[0]: current_data} if isinstance(current_data, (int, float, str)) else current_data
+                    dep_data.update(input_dict)
+
+                current_data = step.execute(dep_data)
 
                 # Store results with output names
                 if isinstance(current_data, dict):
                     self.results[step.name] = current_data
                 else:
-                    # If single output, use first output name
                     self.results[step.name] = {step.outputs[0]: current_data}
 
             self.state = State.COMPLETED
@@ -168,6 +174,7 @@ class Pipeline:
             )
             raise
 
+
     def reset(self) -> None:
         """Reset the pipeline to its initial state.
 
@@ -179,7 +186,7 @@ class Pipeline:
         self.results.clear()
         for step in self.steps.values():
             step.reset()
-
+    
     def save(self, storage: StorageBackend) -> None:
         """Save pipeline to storage backend.
 

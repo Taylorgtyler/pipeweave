@@ -1,29 +1,28 @@
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Optional
-from ..core import Pipeline
+from typing import Dict, Any
 
 
 class StorageBackend(ABC):
     """Abstract base class for pipeline storage backends."""
 
     @abstractmethod
-    def save_pipeline(self, pipeline: Pipeline) -> None:
+    def save_pipeline(self, pipeline: Any) -> None:
         """Save a pipeline to storage.
 
         Args:
-            pipeline (Pipeline): The pipeline to save
+            pipeline (Any): The pipeline to save
         """
         pass
 
     @abstractmethod
-    def load_pipeline(self, pipeline_name: str) -> Pipeline:
+    def load_pipeline(self, pipeline_name: str) -> Any:
         """Load a pipeline from storage.
 
         Args:
             pipeline_name (str): Name of the pipeline to load
 
         Returns:
-            Pipeline: The loaded pipeline
+            Any: The loaded pipeline
 
         Raises:
             ValueError: If pipeline not found
