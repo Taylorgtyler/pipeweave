@@ -2,16 +2,20 @@ from typing import Callable, List, Dict, Optional, Union, Set, Any
 from dataclasses import dataclass, field
 from enum import Enum
 
+
 class State(Enum):
     """Enumeration of possible states for Steps and Pipelines."""
+
     IDLE = "IDLE"
     RUNNING = "RUNNING"
     COMPLETED = "COMPLETED"
     ERROR = "ERROR"
 
+
 @dataclass
 class Step:
     """A step in a pipeline."""
+
     name: str
     description: str
     function: Callable

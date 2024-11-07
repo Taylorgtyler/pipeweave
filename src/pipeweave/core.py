@@ -4,9 +4,10 @@ import logging
 from .step import Step, State
 from .storage.base import StorageBackend
 
+
 class Pipeline:
     """A generic pipeline class that manages the execution of data processing steps.
-    
+
     The Pipeline class provides functionality to create and execute data processing pipelines
     by managing a series of interconnected steps. It handles dependency resolution,
     execution order, and maintains state throughout the pipeline's lifecycle.
@@ -19,7 +20,7 @@ class Pipeline:
         results (Dict[str, Any]): Dictionary storing the results of each step
         logger (Logger): Logger instance for pipeline execution logs
     """
-    
+
     def __init__(self, name: str):
         """Initialize a new Pipeline instance.
 
@@ -40,7 +41,7 @@ class Pipeline:
         function: Callable[[Any], Any],
         inputs: List[str],
         outputs: List[str],
-        dependencies: Optional[Set[str]] = None
+        dependencies: Optional[Set[str]] = None,
     ) -> Pipeline:
         """Add a processing step to the pipeline.
 
@@ -60,25 +61,25 @@ class Pipeline:
         """
         if dependencies is None:
             dependencies = set()
-            
+
         # Validate dependencies exist
         for dep in dependencies:
             if dep not in self.steps:
                 raise ValueError(f"Dependency '{dep}' not found in pipeline steps")
-                
+
         self.steps[name] = Step(
             name=name,
             description=description,
             function=function,
             inputs=inputs,
             outputs=outputs,
-            dependencies=dependencies
+            dependencies=dependencies,
         )
         return self
 
     def _get_execution_order(self) -> List[Step]:
         """Determine the correct execution order based on dependencies.
-        
+
         This method performs a topological sort of the steps based on their dependencies
         to determine a valid execution order.
 
@@ -90,22 +91,23 @@ class Pipeline:
         """
         executed = set()
         execution_order = []
-        
+
         def can_execute(step: Step) -> bool:
             return all(dep in executed for dep in step.dependencies)
-            
+
         while len(executed) < len(self.steps):
             ready_steps = [
-                step for name, step in self.steps.items()
+                step
+                for name, step in self.steps.items()
                 if name not in executed and can_execute(step)
             ]
-            
+
             if not ready_steps and len(executed) < len(self.steps):
                 raise ValueError("Circular dependency detected in pipeline")
-                
+
             execution_order.extend(ready_steps)
             executed.update(step.name for step in ready_steps)
-            
+
         return execution_order
 
     def run(self, input_data: Any = None) -> Dict[str, Any]:
@@ -125,14 +127,14 @@ class Pipeline:
         """
         self.state = State.RUNNING
         current_data = input_data
-        
+
         try:
             ordered_steps = self._get_execution_order()
-            
+
             for step in ordered_steps:
                 self.current_step = step
                 self.logger.info(f"Executing step: {step.name}")
-                
+
                 # Prepare input data based on dependencies and inputs
                 if step.dependencies:
                     dep_data = {
@@ -146,27 +148,29 @@ class Pipeline:
                     current_data = step.execute(dep_data)
                 else:
                     current_data = step.execute(current_data)
-                
+
                 # Store results with output names
                 if isinstance(current_data, dict):
                     self.results[step.name] = current_data
                 else:
                     # If single output, use first output name
                     self.results[step.name] = {step.outputs[0]: current_data}
-                
+
             self.state = State.COMPLETED
             return self.results
-            
+
         except Exception as e:
             self.state = State.ERROR
             if self.current_step:
                 self.current_step.state = State.ERROR
-            self.logger.error(f"Pipeline error in step {self.current_step.name}: {str(e)}")
+            self.logger.error(
+                f"Pipeline error in step {self.current_step.name}: {str(e)}"
+            )
             raise
 
     def reset(self) -> None:
         """Reset the pipeline to its initial state.
-        
+
         This method clears all results and resets the state of the pipeline and all its steps
         back to IDLE, allowing the pipeline to be run again.
         """
@@ -178,20 +182,20 @@ class Pipeline:
 
     def save(self, storage: StorageBackend) -> None:
         """Save pipeline to storage backend.
-        
+
         Args:
             storage (StorageBackend): Storage backend to save to
         """
         storage.save_pipeline(self)
-    
+
     @classmethod
-    def load(cls, storage: StorageBackend, pipeline_name: str) -> 'Pipeline':
+    def load(cls, storage: StorageBackend, pipeline_name: str) -> "Pipeline":
         """Load pipeline from storage backend.
-        
+
         Args:
             storage (StorageBackend): Storage backend to load from
             pipeline_name (str): Name of pipeline to load
-            
+
         Returns:
             Pipeline: Loaded pipeline instance
         """
