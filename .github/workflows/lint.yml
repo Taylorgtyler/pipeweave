@@ -1,11 +1,18 @@
 name: Lint
 
 on:
-  push:
-    branches: [ main ]
-    tags: [ 'v*' ]
-  pull_request:
-    branches: [ main ]
+    workflow_call: # Add this to make it reusable
+      inputs:
+        python-version:
+          description: "Python version to use"
+          type: string
+          required: false
+          default: "3.12"
+    push:
+      branches: [ main ]
+      tags: [ 'v*' ]
+    pull_request:
+      branches: [ main ]
 
 jobs:
   lint:
