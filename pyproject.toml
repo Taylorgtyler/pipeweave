@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "pipeweave"
 version = "0.1.0"
-description = ""
+description = "A flexible Python data pipeline library using finite state machines for custom data processing workflows"
 authors = ["Taylor Tyler <taylorgtyler@gmail.com>"]
 readme = "README.md"
 packages = [{include = "pipeweave", from = "src"}]
