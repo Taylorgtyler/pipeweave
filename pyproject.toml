@@ -2,7 +2,7 @@
 name = "pipeweave"
 version = "0.1.0"
 description = ""
-authors = ["Taylor Tyler <taylorgtyler@gmail.com"]
+authors = ["Taylor Tyler <taylorgtyler@gmail.com>"]
 readme = "README.md"
 packages = [{include = "pipeweave", from = "src"}]
 homepage = "https://github.com/taylorgtyler/pipeweave"
