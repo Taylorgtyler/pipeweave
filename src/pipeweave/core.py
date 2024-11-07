@@ -2,6 +2,7 @@ from __future__ import annotations
 from typing import Any, Callable, Dict, List, Optional, Set
 import logging
 from .step import Step, State
+from .storage.base import StorageBackend
 
 class Pipeline:
     """A generic pipeline class that manages the execution of data processing steps.
@@ -174,3 +175,24 @@ class Pipeline:
         self.results.clear()
         for step in self.steps.values():
             step.reset()
+
+    def save(self, storage: StorageBackend) -> None:
+        """Save pipeline to storage backend.
+        
+        Args:
+            storage (StorageBackend): Storage backend to save to
+        """
+        storage.save_pipeline(self)
+    
+    @classmethod
+    def load(cls, storage: StorageBackend, pipeline_name: str) -> 'Pipeline':
+        """Load pipeline from storage backend.
+        
+        Args:
+            storage (StorageBackend): Storage backend to load from
+            pipeline_name (str): Name of pipeline to load
+            
+        Returns:
+            Pipeline: Loaded pipeline instance
+        """
+        return storage.load_pipeline(pipeline_name)
