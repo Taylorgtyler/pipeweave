@@ -1,0 +1,36 @@
+name: Lint
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+          
+      - name: Install Poetry
+        run: |
+          curl -sSL https://install.python-poetry.org | python3 -
+          
+      - name: Install dependencies
+        run: poetry install
+        
+      - name: Run Black
+        run: poetry run black . --check
+        
+      # Optional: Fail if formatting is needed
+      - name: Check if changes were needed
+        if: failure()
+        run: |
+          echo "::error::Black formatting check failed. Please run 'black .' locally and commit the changes."
+          exit 1
