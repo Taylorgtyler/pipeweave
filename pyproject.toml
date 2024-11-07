@@ -5,10 +5,21 @@ description = ""
 authors = ["Taylor Tyler <taylorgtyler@gmail.com"]
 readme = "README.md"
 packages = [{include = "pipeweave", from = "src"}]
+homepage = "https://github.com/taylorgtyler/pipeweave"
+repository = "https://github.com/taylorgtyler/pipeweave"
+documentation = "https://github.com/taylorgtyler/pipeweave"
+keywords = ["pipeline", "data", "fsm", "workflow"]
+license = "MIT"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+]
 
 [tool.poetry.dependencies]
 python = "^3.12"
-
 
 [tool.poetry.group.dev.dependencies]
 black = "^24.8.0"
