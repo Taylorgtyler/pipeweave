@@ -4,9 +4,27 @@ import logging
 from .step import Step, State
 
 class Pipeline:
-    """A generic pipeline class that manages the execution of data processing steps."""
+    """A generic pipeline class that manages the execution of data processing steps.
+    
+    The Pipeline class provides functionality to create and execute data processing pipelines
+    by managing a series of interconnected steps. It handles dependency resolution,
+    execution order, and maintains state throughout the pipeline's lifecycle.
+
+    Attributes:
+        name (str): The name of the pipeline
+        steps (Dict[str, Step]): Dictionary mapping step names to Step objects
+        state (State): Current state of the pipeline (IDLE, RUNNING, COMPLETED, ERROR)
+        current_step (Optional[Step]): Reference to the currently executing step
+        results (Dict[str, Any]): Dictionary storing the results of each step
+        logger (Logger): Logger instance for pipeline execution logs
+    """
     
     def __init__(self, name: str):
+        """Initialize a new Pipeline instance.
+
+        Args:
+            name (str): The name of the pipeline
+        """
         self.name = name
         self.steps: Dict[str, Step] = {}
         self.state: State = State.IDLE
@@ -23,7 +41,22 @@ class Pipeline:
         outputs: List[str],
         dependencies: Optional[Set[str]] = None
     ) -> Pipeline:
-        """Add a processing step to the pipeline."""
+        """Add a processing step to the pipeline.
+
+        Args:
+            name (str): Unique identifier for the step
+            description (str): Human-readable description of the step's purpose
+            function (Callable[[Any], Any]): The function to execute for this step
+            inputs (List[str]): List of input names expected by the function
+            outputs (List[str]): List of output names produced by the function
+            dependencies (Optional[Set[str]], optional): Set of step names that must execute before this step. Defaults to None.
+
+        Returns:
+            Pipeline: The pipeline instance for method chaining
+
+        Raises:
+            ValueError: If a dependency is specified that doesn't exist in the pipeline
+        """
         if dependencies is None:
             dependencies = set()
             
@@ -43,7 +76,17 @@ class Pipeline:
         return self
 
     def _get_execution_order(self) -> List[Step]:
-        """Determine the correct execution order based on dependencies."""
+        """Determine the correct execution order based on dependencies.
+        
+        This method performs a topological sort of the steps based on their dependencies
+        to determine a valid execution order.
+
+        Returns:
+            List[Step]: List of steps in the order they should be executed
+
+        Raises:
+            ValueError: If a circular dependency is detected in the pipeline
+        """
         executed = set()
         execution_order = []
         
@@ -65,7 +108,20 @@ class Pipeline:
         return execution_order
 
     def run(self, input_data: Any = None) -> Dict[str, Any]:
-        """Execute the pipeline with the given input data."""
+        """Execute the pipeline with the given input data.
+
+        This method executes all steps in the pipeline in the correct order based on dependencies.
+        Results from each step are stored and passed to dependent steps as needed.
+
+        Args:
+            input_data (Any, optional): Initial input data to be passed to the first step. Defaults to None.
+
+        Returns:
+            Dict[str, Any]: Dictionary containing the results of all steps, with step names as keys
+
+        Raises:
+            Exception: Any exception that occurs during step execution is propagated after updating states
+        """
         self.state = State.RUNNING
         current_data = input_data
         
@@ -108,7 +164,11 @@ class Pipeline:
             raise
 
     def reset(self) -> None:
-        """Reset the pipeline to its initial state."""
+        """Reset the pipeline to its initial state.
+        
+        This method clears all results and resets the state of the pipeline and all its steps
+        back to IDLE, allowing the pipeline to be run again.
+        """
         self.state = State.IDLE
         self.current_step = None
         self.results.clear()
