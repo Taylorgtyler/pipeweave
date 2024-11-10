@@ -111,9 +111,7 @@ def test_pipeline_with_stages():
 
     # Create a stage
     stage = create_stage(
-        "processing_stage", 
-        "Stage for processing data", 
-        [step_double, step_add_one]
+        "processing_stage", "Stage for processing data", [step_double, step_add_one]
     )
 
     # Add the stage to the pipeline
