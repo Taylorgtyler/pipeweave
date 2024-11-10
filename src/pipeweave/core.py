@@ -5,6 +5,63 @@ from .step import Step, State
 from .stage import Stage
 from .storage.base import StorageBackend
 
+def create_step(
+    name: str,
+    description: str,
+    function: Callable[[Any], Any],
+    inputs: List[str],
+    outputs: List[str],
+    dependencies: Optional[Set[str]] = None,
+) -> Step:
+    """Create a new Step instance.
+
+    Args:
+        name (str): Unique identifier for the step
+        description (str): Human-readable description of the step's purpose
+        function (Callable[[Any], Any]): The function to execute for this step
+        inputs (List[str]): List of input names expected by the function
+        outputs (List[str]): List of output names produced by the function
+        dependencies (Optional[Set[str]], optional): Set of step names that must execute before this step
+
+    Returns:
+        Step: A new Step instance
+    """
+    step = Step(
+        name=name,
+        description=description,
+        function=function,
+        inputs=inputs,
+        outputs=outputs,
+        dependencies=dependencies or set(),
+    )
+    return step
+
+
+def create_stage(
+    name: str,
+    description: str,
+    steps: List[Step],
+    dependencies: Optional[Set[str]] = None,
+) -> Stage:
+    """Create a new Stage instance.
+
+    Args:
+        name (str): Unique identifier for the stage
+        description (str): Human-readable description of the stage's purpose
+        steps (List[Step]): List of steps in this stage
+        dependencies (Optional[Set[str]], optional): Set of stage names that must execute before this stage
+
+    Returns:
+        Stage: A new Stage instance
+    """
+    stage = Stage(
+        name=name,
+        description=description,
+        steps=steps,
+        dependencies=dependencies or set(),
+    )
+    return stage
+
 
 class Pipeline:
     """A generic pipeline class that manages the execution of data processing steps.
@@ -39,24 +96,11 @@ class Pipeline:
         self.results: Dict[str, Any] = {}
         self.logger = logging.getLogger(__name__)
 
-    def add_step(
-        self,
-        name: str,
-        description: str,
-        function: Callable[[Any], Any],
-        inputs: List[str],
-        outputs: List[str],
-        dependencies: Optional[Set[str]] = None,
-    ) -> Pipeline:
-        """Add a processing step to the pipeline.
+    def add_step(self, step: Step) -> Pipeline:
+        """Add a step to the pipeline.
 
         Args:
-            name (str): Unique identifier for the step
-            description (str): Human-readable description of the step's purpose
-            function (Callable[[Any], Any]): The function to execute for this step
-            inputs (List[str]): List of input names expected by the function
-            outputs (List[str]): List of output names produced by the function
-            dependencies (Optional[Set[str]], optional): Set of step names that must execute before this step. Defaults to None.
+            step (Step): The step to add to the pipeline
 
         Returns:
             Pipeline: The pipeline instance for method chaining
@@ -64,56 +108,35 @@ class Pipeline:
         Raises:
             ValueError: If a dependency is specified that doesn't exist in the pipeline
         """
-        if dependencies is None:
-            dependencies = set()
-
         # Validate dependencies exist
-        for dep in dependencies:
+        for dep in step.dependencies:
             if dep not in self.steps:
                 raise ValueError(f"Dependency '{dep}' not found in pipeline steps")
 
-        self.steps[name] = Step(
-            name=name,
-            description=description,
-            function=function,
-            inputs=inputs,
-            outputs=outputs,
-            dependencies=dependencies,
-        )
+        self.steps[step.name] = step
         return self
 
-    def add_stage(
-        self,
-        name: str,
-        description: str,
-        steps: List[Step],
-        dependencies: Optional[Set[str]] = None,
-    ) -> Pipeline:
+    def add_stage(self, stage: Stage) -> Pipeline:
         """Add a stage to the pipeline.
 
         Args:
-            name (str): Unique identifier for the stage
-            description (str): Human-readable description of the stage's purpose
-            steps (List[Step]): List of steps in this stage
-            dependencies (Optional[Set[str]], optional): Set of stage names that must execute before this stage
-        """
-        if dependencies is None:
-            dependencies = set()
+            stage (Stage): The stage to add to the pipeline
 
+        Returns:
+            Pipeline: The pipeline instance for method chaining
+
+        Raises:
+            ValueError: If a stage dependency is specified that doesn't exist in the pipeline
+        """
         # Validate dependencies exist
-        for dep in dependencies:
+        for dep in stage.dependencies:
             if dep not in self.stages:
                 raise ValueError(f"Stage dependency '{dep}' not found in pipeline")
 
-        self.stages[name] = Stage(
-            name=name,
-            description=description,
-            steps=steps,
-            dependencies=dependencies,
-        )
+        self.stages[stage.name] = stage
 
         # Add all steps from the stage to the pipeline's steps
-        for step in steps:
+        for step in stage.steps:
             self.steps[step.name] = step
 
         return self

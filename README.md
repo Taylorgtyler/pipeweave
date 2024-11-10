@@ -34,20 +34,20 @@ pip install pipeweave
 Here's a simple example that demonstrates how to create and run a pipeline:
 
 ```python
-from pipeweave.core import Pipeline
+from pipeweave.core import Pipeline, create_step, create_stage
 
 # Create a pipeline
 pipeline = Pipeline(name="data_transformer")
 
-# Define some processing functions
+# Define processing functions
 def clean_data(data):
     return [x.strip().lower() for x in data]
 
 def filter_empty(data):
     return [x for x in data if x]
 
-# Add steps to the pipeline
-pipeline.add_step(
+# Create steps
+clean_step = create_step(
     name="clean_data",
     description="Clean the data",
     function=clean_data,
@@ -55,18 +55,21 @@ pipeline.add_step(
     outputs=["cleaned_data"],
 )
 
-pipeline.add_step(
+filter_step = create_step(
     name="filter_empty",
     description="Filter out empty strings",
     function=filter_empty,
     inputs=["cleaned_data"],
     outputs=["filtered_data"],
-    dependencies=["clean_data"],
+    dependencies={"clean_data"},
 )
+
+# Add steps to the pipeline
+pipeline.add_step(clean_step)
+pipeline.add_step(filter_step)
 
 # Run the pipeline
 data = [" Hello ", "World ", "", " Python "]
-
 results = pipeline.run(data)
 
 print(results)
@@ -114,6 +117,21 @@ Pipeweave supports different storage backends for persisting pipelines:
 
 ### Using Storage Backends
 ```python
+from pipeweave.core import Pipeline, create_step
+from pipeweave.storage import SQLiteStorage
+
+# Create a pipeline
+pipeline = Pipeline(name="data_transformer")
+
+# Add steps
+step = create_step(
+    name="example_step",
+    description="Example step",
+    function=lambda x: x * 2,
+    inputs=["input"],
+    outputs=["output"],
+)
+pipeline.add_step(step)
 
 # Initialize Storage
 storage = SQLiteStorage("pipelines.db")
@@ -122,14 +140,28 @@ storage = SQLiteStorage("pipelines.db")
 storage.save_pipeline(pipeline)
 
 # Load Pipeline
-pipeline = storage.load_pipeline("data_transformer")
-
+loaded_pipeline = storage.load_pipeline("data_transformer")
 ```
 
 ### Error Handling
 ```python
+from pipeweave.core import Pipeline, create_step
+from pipeweave.step import State
 
-from pipeweave.steps import State
+# Create pipeline with a step that will fail
+def will_fail(x):
+    raise ValueError("Example error")
+
+error_step = create_step(
+    name="error_step",
+    description="This step will fail",
+    function=will_fail,
+    inputs=["data"],
+    outputs=["result"],
+)
+
+pipeline = Pipeline(name="error_example")
+pipeline.add_step(error_step)
 
 try:
     results = pipeline.run(data)
@@ -141,9 +173,7 @@ except Exception as e:
 ```
 ### Stages
 ```python
-from pipeweave.stage import Stage
-from pipeweave.step import Step
-from pipeweave.core import Pipeline
+from pipeweave.core import Pipeline, create_step, create_stage
 
 # Create a pipeline
 pipeline = Pipeline(name="data_transformer")
@@ -156,18 +186,34 @@ def add_one(x):
     return x + 1
 
 # Create steps
-step_double = Step(name="double", description="Double the input", function=double_number, inputs=["number"], outputs=["result"])
-step_add_one = Step(name="add_one", description="Add one to the input", function=add_one, inputs=["result"], outputs=["final"])
+step_double = create_step(
+    name="double",
+    description="Double the input",
+    function=double_number,
+    inputs=["number"],
+    outputs=["result"],
+)
+
+step_add_one = create_step(
+    name="add_one",
+    description="Add one to the input",
+    function=add_one,
+    inputs=["result"],
+    outputs=["final"],
+)
 
 # Create a stage
-stage = Stage(name="data_processing", description="Process the data", steps=[step_double, step_add_one])
+processing_stage = create_stage(
+    name="processing_stage",
+    description="Process the data",
+    steps=[step_double, step_add_one],
+)
 
 # Add stage to pipeline
-pipeline.add_stage(stage.name, stage.description, stage.steps)
+pipeline.add_stage(processing_stage)
 
 # Run the pipeline
-results = pipeline.run()
-
+results = pipeline.run(5)
 print(results)
 ```
 
