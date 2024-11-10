@@ -1,7 +1,8 @@
 from __future__ import annotations
-from typing import Any, Callable, Dict, List, Optional, Set
+from typing import Any, Callable, Dict, List, Optional, Set, Union
 import logging
 from .step import Step, State
+from .stage import Stage
 from .storage.base import StorageBackend
 
 
@@ -15,8 +16,10 @@ class Pipeline:
     Attributes:
         name (str): The name of the pipeline
         steps (Dict[str, Step]): Dictionary mapping step names to Step objects
+        stages (Dict[str, Stage]): Dictionary mapping stage names to Stage objects
         state (State): Current state of the pipeline (IDLE, RUNNING, COMPLETED, ERROR)
         current_step (Optional[Step]): Reference to the currently executing step
+        current_stage (Optional[Stage]): Reference to the currently executing stage
         results (Dict[str, Any]): Dictionary storing the results of each step
         logger (Logger): Logger instance for pipeline execution logs
     """
@@ -29,8 +32,10 @@ class Pipeline:
         """
         self.name = name
         self.steps: Dict[str, Step] = {}
+        self.stages: Dict[str, Stage] = {}
         self.state: State = State.IDLE
         self.current_step: Optional[Step] = None
+        self.current_stage: Optional[Stage] = None
         self.results: Dict[str, Any] = {}
         self.logger = logging.getLogger(__name__)
 
@@ -77,36 +82,85 @@ class Pipeline:
         )
         return self
 
-    def _get_execution_order(self) -> List[Step]:
-        """Determine the correct execution order based on dependencies.
+    def add_stage(
+        self,
+        name: str,
+        description: str,
+        steps: List[Step],
+        dependencies: Optional[Set[str]] = None,
+    ) -> Pipeline:
+        """Add a stage to the pipeline.
 
-        This method performs a topological sort of the steps based on their dependencies
-        to determine a valid execution order.
-
-        Returns:
-            List[Step]: List of steps in the order they should be executed
-
-        Raises:
-            ValueError: If a circular dependency is detected in the pipeline
+        Args:
+            name (str): Unique identifier for the stage
+            description (str): Human-readable description of the stage's purpose
+            steps (List[Step]): List of steps in this stage
+            dependencies (Optional[Set[str]], optional): Set of stage names that must execute before this stage
         """
+        if dependencies is None:
+            dependencies = set()
+
+        # Validate dependencies exist
+        for dep in dependencies:
+            if dep not in self.stages:
+                raise ValueError(f"Stage dependency '{dep}' not found in pipeline")
+
+        self.stages[name] = Stage(
+            name=name,
+            description=description,
+            steps=steps,
+            dependencies=dependencies,
+        )
+
+        # Add all steps from the stage to the pipeline's steps
+        for step in steps:
+            self.steps[step.name] = step
+
+        return self
+
+    def _get_execution_order(self) -> List[Union[Step, Stage]]:
+        """Determine the correct execution order based on dependencies."""
         executed = set()
         execution_order = []
 
-        def can_execute(step: Step) -> bool:
-            return all(dep in executed for dep in step.dependencies)
+        def can_execute(item: Union[Step, Stage]) -> bool:
+            return all(dep in executed for dep in item.dependencies)
 
-        while len(executed) < len(self.steps):
-            ready_steps = [
-                step
-                for name, step in self.steps.items()
-                if name not in executed and can_execute(step)
+        # First handle stages
+        while len(executed) < len(self.stages):
+            ready_stages = [
+                stage
+                for name, stage in self.stages.items()
+                if name not in executed and can_execute(stage)
             ]
 
-            if not ready_steps and len(executed) < len(self.steps):
-                raise ValueError("Circular dependency detected in pipeline")
+            if not ready_stages and len(executed) < len(self.stages):
+                raise ValueError("Circular dependency detected in pipeline stages")
+
+            execution_order.extend(ready_stages)
+            executed.update(stage.name for stage in ready_stages)
+
+        # Then handle any remaining individual steps
+        remaining_steps = [
+            step
+            for name, step in self.steps.items()
+            if not any(step in stage.steps for stage in self.stages.values())
+        ]
+
+        executed.clear()
+        while remaining_steps:
+            ready_steps = [
+                step
+                for step in remaining_steps
+                if step.name not in executed and can_execute(step)
+            ]
+
+            if not ready_steps and remaining_steps:
+                raise ValueError("Circular dependency detected in pipeline steps")
 
             execution_order.extend(ready_steps)
             executed.update(step.name for step in ready_steps)
+            remaining_steps = [s for s in remaining_steps if s not in ready_steps]
 
         return execution_order
 
@@ -131,50 +185,63 @@ class Pipeline:
         current_data = input_data
 
         try:
-            ordered_steps = self._get_execution_order()
+            ordered_items = self._get_execution_order()
 
-            for step in ordered_steps:
-                self.current_step = step
-                self.logger.info(f"Executing step: {step.name}")
-
-                # Prepare input data based on dependencies and inputs
-                dep_data = {}
-
-                if step.dependencies:
-                    dep_data = {
-                        output: self.results[dep][output]
-                        for dep in step.dependencies
-                        for output in self.steps[dep].outputs
-                        if output in step.inputs
-                    }
-                    if len(step.inputs) == 1 and step.inputs[0] in dep_data:
-                        dep_data = {step.inputs[0]: dep_data[step.inputs[0]]}
-
-                if current_data is not None:
-                    input_dict = (
-                        {step.inputs[0]: current_data}
-                        if isinstance(current_data, (int, float, str))
-                        else current_data
+            for item in ordered_items:
+                if isinstance(item, Stage):
+                    self.current_stage = item
+                    self.logger.info(f"Executing stage: {item.name}")
+                    stage_results = item.execute(current_data)
+                    self.results.update(stage_results)
+                    # Pass the output of the stage to the next stage or step
+                    current_data = (
+                        stage_results  # Update current_data to the results of the stage
                     )
-                    dep_data.update(input_dict)
+                else:  # Step
+                    self.current_step = item
+                    self.logger.info(f"Executing step: {item.name}")
 
-                current_data = step.execute(dep_data)
+                    # Prepare input data based on dependencies and inputs
+                    dep_data = {}
 
-                # Store results with output names
-                if isinstance(current_data, dict):
-                    self.results[step.name] = current_data
-                else:
-                    self.results[step.name] = {step.outputs[0]: current_data}
+                    if item.dependencies:
+                        dep_data = {
+                            output: self.results[dep][output]
+                            for dep in item.dependencies
+                            for output in self.steps[dep].outputs
+                            if output in item.inputs
+                        }
+                        if len(item.inputs) == 1 and item.inputs[0] in dep_data:
+                            dep_data = {item.inputs[0]: dep_data[item.inputs[0]]}
+
+                    if current_data is not None:
+                        input_dict = (
+                            {item.inputs[0]: current_data}
+                            if isinstance(current_data, (int, float, str))
+                            else current_data
+                        )
+                        dep_data.update(input_dict)
+
+                    current_data = item.execute(dep_data)
+
+                    # Store results with output names
+                    if isinstance(current_data, dict):
+                        self.results[item.name] = current_data
+                    else:
+                        self.results[item.name] = {item.outputs[0]: current_data}
 
             self.state = State.COMPLETED
             return self.results
 
         except Exception as e:
             self.state = State.ERROR
+            if self.current_stage:
+                self.current_stage.state = State.ERROR
             if self.current_step:
                 self.current_step.state = State.ERROR
             self.logger.error(
-                f"Pipeline error in step {self.current_step.name}: {str(e)}"
+                f"Pipeline error in {'stage' if self.current_stage else 'step'} "
+                f"{self.current_stage.name if self.current_stage else self.current_step.name}: {str(e)}"
             )
             raise
 
@@ -186,9 +253,12 @@ class Pipeline:
         """
         self.state = State.IDLE
         self.current_step = None
+        self.current_stage = None
         self.results.clear()
         for step in self.steps.values():
             step.reset()
+        for stage in self.stages.values():
+            stage.reset()
 
     def save(self, storage: StorageBackend) -> None:
         """Save pipeline to storage backend.

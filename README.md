@@ -84,6 +84,18 @@ A Step is the basic building block of a pipeline. Each step:
 - Can specify dependencies on other steps
 - Maintains its own state (IDLE, RUNNING, COMPLETED, ERROR)
 
+
+### Stages
+
+A Stage is a collection of steps that can be executed together. Each stage:
+- Has a unique name and description
+- Contains multiple steps, which are individual processing units
+- Defines its own state (IDLE, RUNNING, COMPLETED, ERROR)
+- Can specify dependencies on other stages, ensuring that it only runs when all its dependencies have been completed
+
+Stages allow for better organization of complex pipelines by grouping related steps together. This modular approach enhances readability and maintainability of the pipeline code.
+
+
 ### Pipeline
 
 A Pipeline is a collection of steps that:
@@ -127,6 +139,37 @@ except Exception as e:
         if step.state == State.ERROR:
             print(f"Step {step.name} failed: {step.error}")
 ```
+### Stages
+```python
+from pipeweave.stage import Stage
+from pipeweave.step import Step
+from pipeweave.core import Pipeline
+
+# Create a pipeline
+pipeline = Pipeline(name="data_transformer")
+
+# Define step functions
+def double_number(x):
+    return x * 2
+
+def add_one(x):
+    return x + 1
+
+# Create steps
+step_double = Step(name="double", description="Double the input", function=double_number, inputs=["number"], outputs=["result"])
+step_add_one = Step(name="add_one", description="Add one to the input", function=add_one, inputs=["result"], outputs=["final"])
+
+# Create a stage
+stage = Stage(name="data_processing", description="Process the data", steps=[step_double, step_add_one])
+
+# Add stage to pipeline
+pipeline.add_stage(stage.name, stage.description, stage.steps)
+
+# Run the pipeline
+results = pipeline.run()
+
+print(results)
+```
 
 ## Contributing
 
@@ -150,6 +193,7 @@ Pipeweave is currently in alpha. While it's functional and tested, the API may c
 
 ## Roadmap
 
+- [x] Add a stages feature
 - [ ] Add a more robust state machine implementation
 - [ ] Add more storage backends
 - [ ] Add more detailed monitoring and logging
