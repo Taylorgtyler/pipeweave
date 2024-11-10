@@ -26,13 +26,7 @@ jobs:
           
       - name: Build package
         run: poetry build
-        
-      - name: Publish to PyPI
-        env:
-          POETRY_PYPI_TOKEN_PYPI: ${{secrets.PYPI_API_TOKEN}}
-        run: |
-          poetry publish
-        
+
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
@@ -42,3 +36,9 @@ jobs:
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.ACTIONS_TOKEN }}
+
+      - name: Publish to PyPI
+        env:
+          POETRY_PYPI_TOKEN_PYPI: ${{ secrets.PYPI_API_TOKEN }}
+        run: |
+          poetry publish
