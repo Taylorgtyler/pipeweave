@@ -241,6 +241,9 @@ Pipeweave is currently in alpha. While it's functional and tested, the API may c
 
 - [x] Add a stages feature
 - [ ] Add a more robust state machine implementation
-- [ ] Add more storage backends
+- [ ] Add postgres storage backend
 - [ ] Add more detailed monitoring and logging
-- [ ] Add more testing and CI/CD pipeline
+- [x] Add more testing and CI/CD pipeline
+- [ ] Add a cli
+- [ ] Add more metadata to pipelines, stages, and steps
+- [ ] Add a web app management interface
