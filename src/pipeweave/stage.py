@@ -3,8 +3,9 @@ from dataclasses import dataclass, field
 
 from .step import Step, State
 
-T = TypeVar('T')  # Type variable for input data
-R = TypeVar('R')  # Type variable for output data
+T = TypeVar("T")  # Type variable for input data
+R = TypeVar("R")  # Type variable for output data
+
 
 @dataclass
 class Stage:
@@ -104,7 +105,9 @@ class Stage:
                     dep_data = {
                         output: results[dep][output]
                         for dep in step.dependencies
-                        for output in next(s for s in self.steps if s.name == dep).outputs
+                        for output in next(
+                            s for s in self.steps if s.name == dep
+                        ).outputs
                         if output in step.inputs
                     }
                     if len(step.inputs) == 1 and step.inputs[0] in dep_data:

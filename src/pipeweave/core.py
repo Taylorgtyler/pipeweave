@@ -5,7 +5,8 @@ from .step import Step, State
 from .stage import Stage
 from .storage.base import StorageBackend
 
-T = TypeVar('T')  # Type variable for generic input/output types
+T = TypeVar("T")  # Type variable for generic input/output types
+
 
 def create_step(
     name: str,
@@ -338,8 +339,14 @@ class Pipeline:
                         if current_data is not None:
                             if isinstance(current_data, dict):
                                 # Map outputs to inputs if names don't match
-                                if len(item.inputs) == 1 and not any(k in item.inputs for k in current_data):
-                                    dep_data = {item.inputs[0]: next(iter(current_data.values()))}
+                                if len(item.inputs) == 1 and not any(
+                                    k in item.inputs for k in current_data
+                                ):
+                                    dep_data = {
+                                        item.inputs[0]: next(
+                                            iter(current_data.values())
+                                        )
+                                    }
                                 else:
                                     dep_data = current_data
                             elif len(item.inputs) == 1:
@@ -352,7 +359,7 @@ class Pipeline:
                         self.results[item.name] = result
                     else:
                         self.results[item.name] = {item.outputs[0]: result}
-                    
+
                     # Update current_data for next item
                     current_data = self.results[item.name]
 

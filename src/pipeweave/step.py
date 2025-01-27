@@ -22,8 +22,9 @@ class State(Enum):
     ERROR = "ERROR"
 
 
-T = TypeVar('T')  # Type variable for input data
-R = TypeVar('R')  # Type variable for output data
+T = TypeVar("T")  # Type variable for input data
+R = TypeVar("R")  # Type variable for output data
+
 
 @dataclass
 class Step:
@@ -92,7 +93,7 @@ class Step:
         """
         try:
             self.state = State.RUNNING
-            
+
             # Extract input value if it's a dictionary with a single input
             if isinstance(data, dict):
                 if len(self.inputs) == 1:
@@ -100,19 +101,19 @@ class Step:
                 else:
                     # If multiple inputs, pass them as kwargs
                     data = {k: v for k, v in data.items() if k in self.inputs}
-            
+
             # Execute function
             result = self.function(data)
-            
+
             # Format output
             if isinstance(result, dict):
                 output = result
             else:
                 output = {self.outputs[0]: result}
-                
+
             self.state = State.COMPLETED
             return output
-            
+
         except Exception as e:
             self.state = State.ERROR
             raise
