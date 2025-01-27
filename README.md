@@ -25,86 +25,84 @@ pip install pipeweave
 
 Here's a simple example that demonstrates how to create and run a pipeline:
 
-```bash
-pip install pipeweave
-
-```
-
-## Quick Start
-Here's a simple example that demonstrates how to create and run a pipeline:
-
 ```python
-from pipeweave.core import Pipeline, create_step, create_stage
+from pipeweave import Pipeline, create_step, create_stage
 
 # Create a pipeline
-pipeline = Pipeline(name="data_transformer")
+pipeline = Pipeline(name="text_processor")
 
 # Define processing functions
-def clean_data(data):
-    return [x.strip().lower() for x in data]
+def clean_text(text):
+    """Clean text by converting to lowercase and stripping whitespace."""
+    return text.strip().lower()
 
-def filter_empty(data):
-    return [x for x in data if x]
+def count_words(text):
+    """Count words in cleaned text."""
+    return len(text.split())
 
-# Create steps
-clean_step = create_step(
-    name="clean_data",
-    description="Clean the data",
-    function=clean_data,
-    inputs=["raw_data"],
-    outputs=["cleaned_data"],
+# Create a stage with sequential steps
+cleaning_stage = create_stage(
+    name="cleaning",
+    description="Clean and process text",
+    steps=[
+        create_step(
+            name="clean_text",
+            description="Clean the text",
+            function=clean_text,
+            inputs=["text"],
+            outputs=["cleaned"],
+        ),
+        create_step(
+            name="count_words",
+            description="Count words in text",
+            function=count_words,
+            inputs=["cleaned"],
+            outputs=["word_count"],
+        ),
+    ],
 )
 
-filter_step = create_step(
-    name="filter_empty",
-    description="Filter out empty strings",
-    function=filter_empty,
-    inputs=["cleaned_data"],
-    outputs=["filtered_data"],
-    dependencies={"clean_data"},
-)
+# Add stage to pipeline
+pipeline.add_stage(cleaning_stage)
 
-# Add steps to the pipeline
-pipeline.add_step(clean_step)
-pipeline.add_step(filter_step)
+# Run the pipeline with input text
+text = "  Hello World  "
+results = pipeline.run(text)
+# Data flows: "  Hello World  " -> "hello world" -> 2
 
-# Run the pipeline
-data = [" Hello ", "World ", "", " Python "]
-results = pipeline.run(data)
-
-print(results)
+print(results["clean_text"]["cleaned"])  # "hello world"
+print(results["count_words"]["word_count"])  # 2
 ```
-
 
 ## Core Concepts
 
 ### Steps
 
 A Step is the basic building block of a pipeline. Each step:
-- Has a unique name
+- Has a unique name and description
 - Contains a processing function
 - Defines its inputs and outputs
-- Can specify dependencies on other steps
+- Receives input from the previous step's output by default
+- Can specify dependencies for custom data flow
 - Maintains its own state (IDLE, RUNNING, COMPLETED, ERROR)
-
 
 ### Stages
 
-A Stage is a collection of steps that can be executed together. Each stage:
+A Stage is a collection of steps that are executed sequentially. Each stage:
 - Has a unique name and description
-- Contains multiple steps, which are individual processing units
-- Defines its own state (IDLE, RUNNING, COMPLETED, ERROR)
-- Can specify dependencies on other stages, ensuring that it only runs when all its dependencies have been completed
+- Contains multiple steps that form a data transformation flow
+- Passes data between steps automatically
+- Can specify dependencies on other stages
+- Maintains its own state (IDLE, RUNNING, COMPLETED, ERROR)
 
-Stages allow for better organization of complex pipelines by grouping related steps together. This modular approach enhances readability and maintainability of the pipeline code.
-
+Stages provide a natural way to organize related data transformations, where each step builds on the output of the previous step.
 
 ### Pipeline
 
-A Pipeline is a collection of steps that:
-- Manages the execution order based on dependencies
-- Handles data flow between steps
-- Tracks overall execution state
+A Pipeline manages the flow of data through steps and stages:
+- Executes steps and stages in dependency order
+- Passes data between components automatically
+- Tracks execution state
 - Can be saved and loaded using storage backends
 
 ### Storage Backends
@@ -117,7 +115,7 @@ Pipeweave supports different storage backends for persisting pipelines:
 
 ### Using Storage Backends
 ```python
-from pipeweave.core import Pipeline, create_step
+from pipeweave import Pipeline, create_step
 from pipeweave.storage import SQLiteStorage
 
 # Create a pipeline
@@ -145,8 +143,7 @@ loaded_pipeline = storage.load_pipeline("data_transformer")
 
 ### Error Handling
 ```python
-from pipeweave.core import Pipeline, create_step
-from pipeweave.step import State
+from pipeweave import Pipeline, create_step, State
 
 # Create pipeline with a step that will fail
 def will_fail(x):
@@ -171,51 +168,67 @@ except Exception as e:
         if step.state == State.ERROR:
             print(f"Step {step.name} failed: {step.error}")
 ```
-### Stages
+
+### Advanced Data Flow Patterns
+
+Here's an example showing different data flow patterns:
+
 ```python
-from pipeweave.core import Pipeline, create_step, create_stage
+from pipeweave import Pipeline, create_step, create_stage
 
-# Create a pipeline
-pipeline = Pipeline(name="data_transformer")
+# Create a pipeline for processing numbers
+pipeline = Pipeline(name="number_processor")
 
-# Define step functions
-def double_number(x):
-    return x * 2
+# Stage 1: Sequential number processing
+math_stage = create_stage(
+    name="math_ops",
+    description="Mathematical operations",
+    steps=[
+        create_step(
+            name="double",
+            description="Double the input",
+            function=lambda x: x * 2,
+            inputs=["number"],
+            outputs=["doubled"],
+        ),
+        create_step(
+            name="add_one",
+            description="Add one to doubled number",
+            function=lambda x: x + 1,
+            inputs=["doubled"],
+            outputs=["result"],
+        ),
+    ],
+)
 
-def add_one(x):
-    return x + 1
-
-# Create steps
-step_double = create_step(
-    name="double",
-    description="Double the input",
-    function=double_number,
+# Independent step that works with original input
+format_step = create_step(
+    name="format",
+    description="Format the original number",
+    function=lambda x: f"Original number: {x}",
     inputs=["number"],
-    outputs=["result"],
+    outputs=["formatted"],
 )
 
-step_add_one = create_step(
-    name="add_one",
-    description="Add one to the input",
-    function=add_one,
-    inputs=["result"],
-    outputs=["final"],
-)
+# Add components to pipeline
+pipeline.add_stage(math_stage)
+pipeline.add_step(format_step)
 
-# Create a stage
-processing_stage = create_stage(
-    name="processing_stage",
-    description="Process the data",
-    steps=[step_double, step_add_one],
-)
-
-# Add stage to pipeline
-pipeline.add_stage(processing_stage)
-
-# Run the pipeline
+# Run pipeline with input 5
 results = pipeline.run(5)
-print(results)
+# Data flows:
+# - math_stage: 5 -> double (10) -> add_one (11)
+# - format_step: 5 -> "Original number: 5"
+
+print(results["double"]["doubled"])  # 10
+print(results["add_one"]["result"])  # 11
+print(results["format"]["formatted"])  # "Original number: 5"
 ```
+
+For independent operations that need to work with the original input data, you can:
+1. Use stages with single steps
+2. Use explicit dependencies (when supported)
+3. Create separate pipelines
 
 ## Contributing
 
