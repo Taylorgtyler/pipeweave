@@ -82,30 +82,38 @@ def create_stage(
 
 
 class Pipeline:
-    """A generic pipeline class that manages the execution of data processing steps.
+    """A pipeline that executes a sequence of steps and stages in dependency order.
 
-    The Pipeline class provides functionality to create and execute data processing pipelines
-    by managing a series of interconnected steps and stages. It handles dependency resolution,
-    execution order, and maintains state throughout the pipeline's lifecycle.
+    A pipeline represents a workflow where data flows through a sequence of steps and stages.
+    Each step or stage receives input from the previous step/stage's output, creating a natural
+    data transformation flow. Steps within a stage are executed sequentially, with each step's
+    output feeding into the next step.
+
+    For independent operations that need to work with the original input data, it's recommended to:
+    1. Use stages with single steps
+    2. Use explicit dependencies (when supported)
+    3. Create separate pipelines for independent operations
 
     Attributes:
-        name (str): The unique identifier of the pipeline.
-        steps (Dict[str, Step]): Dictionary mapping step names to Step objects.
-        stages (Dict[str, Stage]): Dictionary mapping stage names to Stage objects.
-        state (State): Current state of the pipeline (IDLE, RUNNING, COMPLETED, ERROR).
-        current_step (Optional[Step]): Reference to the currently executing step.
-        current_stage (Optional[Stage]): Reference to the currently executing stage.
-        results (Dict[str, Dict[str, Any]]): Dictionary storing the results of each step.
-            Organized as {step_name: {output_name: value}}.
-        logger (logging.Logger): Logger instance for pipeline execution logs.
+        name (str): Name of the pipeline.
+        description (str): Description of what the pipeline does.
+        stages (Dict[str, Stage]): Dictionary of stages in the pipeline.
+        steps (Dict[str, Step]): Dictionary of steps in the pipeline.
+        results (Dict[str, Dict[str, Any]]): Results from pipeline execution.
+        state (State): Current state of the pipeline.
+        current_stage (Optional[Stage]): Currently executing stage.
+        current_step (Optional[Step]): Currently executing step.
+        logger (logging.Logger): Logger for pipeline events.
 
     Example:
-        >>> pipeline = Pipeline("data_transformer")
-        >>> step1 = create_step("double", "Double input", lambda x: x * 2, ["num"], ["result"])
-        >>> pipeline.add_step(step1)
-        >>> results = pipeline.run(5)
-        >>> print(results["double"]["result"])
-        10
+        >>> pipeline = Pipeline("math_ops")
+        >>> pipeline.add_stage(Stage("stage1", "First stage", [
+        ...     Step("double", "Double input", lambda x: x * 2, ["num"], ["result"])
+        ... ]))
+        >>> pipeline.add_step(Step("add_one", "Add one", lambda x: x + 1, ["result"], ["final"]))
+        >>> results = pipeline.run(5)  # Input flows: 5 -> double (10) -> add_one (11)
+        >>> print(results["double"]["result"])  # 10
+        >>> print(results["add_one"]["final"])  # 11
     """
 
     def __init__(self, name: str) -> None:
@@ -250,12 +258,21 @@ class Pipeline:
     def run(self, input_data: Optional[T] = None) -> Dict[str, Dict[str, Any]]:
         """Execute the pipeline with the given input data.
 
-        This method executes all steps and stages in the pipeline in dependency order,
-        passing data between steps and handling any errors that occur during execution.
+        This method executes all steps and stages in the pipeline in dependency order.
+        Data flows through the pipeline sequentially, where each step/stage receives
+        the output from the previous step/stage as its input. This creates a natural
+        transformation pipeline where data is processed in stages.
+
+        For example, if you have:
+        - A stage with a step that doubles a number
+        - A step that adds one
+        The data will flow: input (5) -> double (10) -> add_one (11)
 
         Args:
             input_data (Optional[T], optional): Initial input data to pass to the pipeline.
-                This data will be passed to steps that don't have dependencies. Defaults to None.
+                This data will be passed to the first step/stage. Defaults to None.
+                If a raw value is provided, it will be wrapped in a dictionary using the first
+                input name of the first step/stage.
 
         Returns:
             Dict[str, Dict[str, Any]]: Dictionary containing the results of all pipeline steps,
@@ -267,10 +284,13 @@ class Pipeline:
 
         Example:
             >>> pipeline = Pipeline("math_ops")
-            >>> pipeline.add_step(create_step("double", "Double input", lambda x: x * 2, ["num"], ["result"]))
-            >>> results = pipeline.run(5)
-            >>> print(results["double"]["result"])
-            10
+            >>> pipeline.add_stage(Stage("stage1", "First stage", [
+            ...     Step("double", "Double input", lambda x: x * 2, ["num"], ["result"])
+            ... ]))
+            >>> pipeline.add_step(Step("add_one", "Add one", lambda x: x + 1, ["result"], ["final"]))
+            >>> results = pipeline.run(5)  # Input flows: 5 -> double (10) -> add_one (11)
+            >>> print(results["double"]["result"])  # 10
+            >>> print(results["add_one"]["final"])  # 11
         """
         self.state = State.RUNNING
         current_data: Any = input_data
@@ -278,13 +298,25 @@ class Pipeline:
         try:
             ordered_items = self._get_execution_order()
 
+            # If input is not None and not a dict, wrap it in a dict using the first input name
+            if current_data is not None and not isinstance(current_data, dict):
+                # Find first step/stage to get input name
+                first_item = ordered_items[0]
+                if isinstance(first_item, Stage):
+                    input_name = first_item.steps[0].inputs[0]
+                else:
+                    input_name = first_item.inputs[0]
+                current_data = {input_name: current_data}
+
             for item in ordered_items:
                 if isinstance(item, Stage):
                     self.current_stage = item
                     self.logger.info(f"Executing stage: {item.name}")
                     stage_results = item.execute(current_data)
                     self.results.update(stage_results)
-                    current_data = stage_results
+                    # Pass the last step's result to the next item
+                    last_step = item.steps[-1]
+                    current_data = self.results[last_step.name]
                 else:  # Step
                     self.current_step = item
                     self.logger.info(f"Executing step: {item.name}")
@@ -301,22 +333,28 @@ class Pipeline:
                         }
                         if len(item.inputs) == 1 and item.inputs[0] in dep_data:
                             dep_data = {item.inputs[0]: dep_data[item.inputs[0]]}
+                    else:
+                        # If no dependencies, use current data
+                        if current_data is not None:
+                            if isinstance(current_data, dict):
+                                # Map outputs to inputs if names don't match
+                                if len(item.inputs) == 1 and not any(k in item.inputs for k in current_data):
+                                    dep_data = {item.inputs[0]: next(iter(current_data.values()))}
+                                else:
+                                    dep_data = current_data
+                            elif len(item.inputs) == 1:
+                                dep_data = {item.inputs[0]: current_data}
 
-                    if current_data is not None:
-                        input_dict = (
-                            {item.inputs[0]: current_data}
-                            if isinstance(current_data, (int, float, str))
-                            else current_data
-                        )
-                        dep_data.update(input_dict)
-
-                    current_data = item.execute(dep_data)
+                    result = item.execute(dep_data)
 
                     # Store results with output names
-                    if isinstance(current_data, dict):
-                        self.results[item.name] = current_data
+                    if isinstance(result, dict):
+                        self.results[item.name] = result
                     else:
-                        self.results[item.name] = {item.outputs[0]: current_data}
+                        self.results[item.name] = {item.outputs[0]: result}
+                    
+                    # Update current_data for next item
+                    current_data = self.results[item.name]
 
             self.state = State.COMPLETED
             return self.results

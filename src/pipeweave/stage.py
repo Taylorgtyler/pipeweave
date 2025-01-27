@@ -8,36 +8,30 @@ R = TypeVar('R')  # Type variable for output data
 
 @dataclass
 class Stage:
-    """A group of related steps in a data processing pipeline.
+    """A group of steps that are executed sequentially as part of a pipeline.
 
-    A Stage represents a logical grouping of steps that should be executed together.
-    Stages can have dependencies on other stages, allowing for complex pipeline
-    structures with multiple levels of organization. Each stage maintains its own
-    state and manages the execution of its contained steps.
+    A stage represents a logical grouping of steps that are executed in sequence.
+    Data flows through the steps in a stage sequentially, with each step receiving
+    the output from the previous step as its input. This creates a natural data
+    transformation flow within the stage.
+
+    For independent operations that need to work with the original input data,
+    it's recommended to use separate stages with single steps.
 
     Attributes:
-        name (str): Unique identifier for the stage.
-        description (str): Human-readable description of the stage's purpose.
-        steps (List[Step]): List of steps contained in this stage.
-        dependencies (Set[str]): Set of stage names that must execute before this stage.
-        state (State): Current execution state of the stage.
+        name (str): Name of the stage.
+        description (str): Description of what the stage does.
+        steps (List[Step]): List of steps to execute in sequence.
+        state (State): Current state of the stage.
 
     Example:
-        >>> def step1_fn(x: int) -> int:
-        ...     return x * 2
-        >>> def step2_fn(x: int) -> int:
-        ...     return x + 1
-        >>> step1 = Step("double", "Double input", step1_fn, ["num"], ["doubled"])
-        >>> step2 = Step("add_one", "Add one", step2_fn, ["doubled"], ["result"])
-        >>> stage = Stage(
-        ...     name="process_numbers",
-        ...     description="Process numbers with multiple operations",
-        ...     steps=[step1, step2],
-        ...     dependencies=set()
-        ... )
-        >>> results = stage.execute(5)
-        >>> print(results["result"])
-        11
+        >>> stage = Stage("math_ops", "Math operations", [
+        ...     Step("double", "Double input", lambda x: x * 2, ["num"], ["result"]),
+        ...     Step("add_one", "Add one", lambda x: x + 1, ["result"], ["final"])
+        ... ])
+        >>> results = stage.execute(5)  # Input flows: 5 -> double (10) -> add_one (11)
+        >>> print(results["double"]["result"])  # 10
+        >>> print(results["add_one"]["final"])  # 11
     """
 
     name: str
@@ -61,13 +55,21 @@ class Stage:
     def execute(self, data: Optional[T] = None) -> Dict[str, Dict[str, R]]:
         """Execute all steps in the stage with the provided input data.
 
-        This method executes all steps in the stage in sequence, passing data between
-        steps based on their input/output specifications. The stage's state is updated
-        to reflect its execution status.
+        This method executes all steps in the stage in sequence. Data flows through
+        the steps sequentially, where each step receives the output from the previous
+        step as its input. This creates a natural transformation pipeline where data
+        is processed step by step.
+
+        For example, if you have:
+        - A step that doubles a number
+        - A step that adds one
+        The data will flow: input (5) -> double (10) -> add_one (11)
 
         Args:
             data (Optional[T], optional): Input data for the first step.
-                If provided, this data will be passed to steps that don't have dependencies.
+                If provided, this data will be passed to the first step.
+                Can be a raw value or a dictionary mapping input names to values.
+                Raw values are automatically wrapped using the first step's first input name.
                 Defaults to None.
 
         Returns:
@@ -83,7 +85,7 @@ class Stage:
             ...     Step("double", "Double input", lambda x: x * 2, ["num"], ["result"]),
             ...     Step("add_one", "Add one", lambda x: x + 1, ["result"], ["final"])
             ... ])
-            >>> results = stage.execute(5)
+            >>> results = stage.execute(5)  # Input flows: 5 -> double (10) -> add_one (11)
             >>> print(results["double"]["result"])  # 10
             >>> print(results["add_one"]["final"])  # 11
         """
@@ -91,6 +93,10 @@ class Stage:
             self.state = State.RUNNING
             results: Dict[str, Dict[str, R]] = {}
             current_data = data
+
+            # If input is not None and not a dict, wrap it in a dict using first step's first input
+            if current_data is not None and not isinstance(current_data, dict):
+                current_data = {self.steps[0].inputs[0]: current_data}
 
             for step in self.steps:
                 # Prepare input data based on dependencies
@@ -104,11 +110,7 @@ class Stage:
                     if len(step.inputs) == 1 and step.inputs[0] in dep_data:
                         dep_data = {step.inputs[0]: dep_data[step.inputs[0]]}
                 else:
-                    dep_data = (
-                        {step.inputs[0]: current_data}
-                        if current_data is not None
-                        else {}
-                    )
+                    dep_data = current_data if current_data is not None else {}
 
                 # Execute step and store results
                 step_result = step.execute(dep_data)

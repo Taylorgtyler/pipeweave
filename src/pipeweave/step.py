@@ -27,36 +27,31 @@ R = TypeVar('R')  # Type variable for output data
 
 @dataclass
 class Step:
-    """A step in a data processing pipeline.
+    """A single step in a data processing pipeline.
 
-    A Step represents a single unit of work in a pipeline. It encapsulates a function
-    that processes data, along with metadata about its inputs, outputs, and dependencies.
-    Steps can be connected together to form a pipeline, with data flowing between them
-    based on their input/output specifications.
+    A step represents a single data transformation operation in a pipeline.
+    When part of a stage or pipeline, a step typically receives input from
+    the previous step's output, creating a natural data transformation flow.
+
+    For independent operations that need to work with the original input data,
+    it's recommended to:
+    1. Place the step in its own stage
+    2. Use explicit dependencies (when supported)
+    3. Create a separate pipeline
 
     Attributes:
-        name (str): Unique identifier for the step.
-        description (str): Human-readable description of the step's purpose.
-        function (Callable): The function to execute for this step.
-        inputs (List[str]): List of input names expected by the function.
-        outputs (List[str]): List of output names produced by the function.
+        name (str): Name of the step.
+        description (str): Description of what the step does.
+        function (Callable): Function that implements the step's logic.
+        inputs (List[str]): List of input names the function expects.
+        outputs (List[str]): List of output names the function produces.
         dependencies (Set[str]): Set of step names that must execute before this step.
-        state (State): Current execution state of the step.
+        state (State): Current state of the step.
 
     Example:
-        >>> def double_number(x: int) -> int:
-        ...     return x * 2
-        >>> step = Step(
-        ...     name="double",
-        ...     description="Double the input number",
-        ...     function=double_number,
-        ...     inputs=["number"],
-        ...     outputs=["result"],
-        ...     dependencies=set()
-        ... )
-        >>> result = step.execute({"number": 5})
-        >>> print(result["result"])
-        10
+        >>> step = Step("double", "Double input", lambda x: x * 2, ["num"], ["result"])
+        >>> result = step.execute({"num": 5})
+        >>> print(result["result"])  # 10
     """
 
     name: str
@@ -70,17 +65,21 @@ class Step:
     def execute(self, data: Union[T, Dict[str, T]]) -> Union[R, Dict[str, R]]:
         """Execute the step with the provided input data.
 
-        This method runs the step's function with the provided input data and returns
-        the results. It also manages the step's state during execution.
+        This method runs the step's function with the provided input data.
+        When part of a stage or pipeline, the input data typically comes
+        from the previous step's output, creating a natural data flow.
 
         Args:
             data (Union[T, Dict[str, T]]): Input data for the function.
                 Can be either a single value or a dictionary mapping input names to values.
+                If a dictionary is provided and there's only one input, the value is extracted.
+                In a pipeline, this is typically the output from the previous step.
 
         Returns:
             Union[R, Dict[str, R]]: The function's output.
                 If the function returns a dictionary, it is returned as is.
                 Otherwise, the output is wrapped in a dictionary using the first output name.
+                This output will typically be passed to the next step in the pipeline.
 
         Raises:
             Exception: Any exception raised by the function is propagated up.
@@ -88,18 +87,32 @@ class Step:
 
         Example:
             >>> step = Step("double", "Double input", lambda x: x * 2, ["num"], ["result"])
-            >>> result = step.execute({"num": 5})
-            >>> print(result["result"])
-            10
+            >>> result = step.execute({"num": 5})  # In a pipeline, this might be output from previous step
+            >>> print(result["result"])  # 10 (will be passed to next step)
         """
         try:
             self.state = State.RUNNING
-            # Extract the value if it's a dictionary with a single input
-            if isinstance(data, dict) and len(self.inputs) == 1:
-                data = data[self.inputs[0]]
+            
+            # Extract input value if it's a dictionary with a single input
+            if isinstance(data, dict):
+                if len(self.inputs) == 1:
+                    data = data[self.inputs[0]]
+                else:
+                    # If multiple inputs, pass them as kwargs
+                    data = {k: v for k, v in data.items() if k in self.inputs}
+            
+            # Execute function
             result = self.function(data)
+            
+            # Format output
+            if isinstance(result, dict):
+                output = result
+            else:
+                output = {self.outputs[0]: result}
+                
             self.state = State.COMPLETED
-            return result
+            return output
+            
         except Exception as e:
             self.state = State.ERROR
             raise
