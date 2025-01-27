@@ -1,15 +1,16 @@
 from __future__ import annotations
-from typing import Any, Callable, Dict, List, Optional, Set, Union
+from typing import Any, Callable, Dict, List, Optional, Set, Union, TypeVar, Iterator
 import logging
 from .step import Step, State
 from .stage import Stage
 from .storage.base import StorageBackend
 
+T = TypeVar('T')  # Type variable for generic input/output types
 
 def create_step(
     name: str,
     description: str,
-    function: Callable[[Any], Any],
+    function: Callable[[T], Any],
     inputs: List[str],
     outputs: List[str],
     dependencies: Optional[Set[str]] = None,
@@ -17,15 +18,22 @@ def create_step(
     """Create a new Step instance.
 
     Args:
-        name (str): Unique identifier for the step
-        description (str): Human-readable description of the step's purpose
-        function (Callable[[Any], Any]): The function to execute for this step
-        inputs (List[str]): List of input names expected by the function
-        outputs (List[str]): List of output names produced by the function
-        dependencies (Optional[Set[str]], optional): Set of step names that must execute before this step
+        name (str): Unique identifier for the step.
+        description (str): Human-readable description of the step's purpose.
+        function (Callable[[T], Any]): The function to execute for this step.
+            The function should take a single argument of type T and return any type.
+        inputs (List[str]): List of input names expected by the function.
+            These names are used to map data from previous steps.
+        outputs (List[str]): List of output names produced by the function.
+            These names are used to map data to subsequent steps.
+        dependencies (Optional[Set[str]], optional): Set of step names that must execute before this step.
+            Dependencies are used to determine execution order. Defaults to None.
 
     Returns:
-        Step: A new Step instance
+        Step: A new Step instance configured with the provided parameters.
+
+    Raises:
+        ValueError: If dependencies contain step names that don't exist in the pipeline.
     """
     step = Step(
         name=name,
@@ -46,14 +54,23 @@ def create_stage(
 ) -> Stage:
     """Create a new Stage instance.
 
+    A stage is a collection of steps that are logically grouped together and can be
+    executed as a unit. Stages can have dependencies on other stages, ensuring proper
+    execution order in the pipeline.
+
     Args:
-        name (str): Unique identifier for the stage
-        description (str): Human-readable description of the stage's purpose
-        steps (List[Step]): List of steps in this stage
-        dependencies (Optional[Set[str]], optional): Set of stage names that must execute before this stage
+        name (str): Unique identifier for the stage.
+        description (str): Human-readable description of the stage's purpose.
+        steps (List[Step]): List of steps to be included in this stage.
+            Steps within a stage are executed in dependency order.
+        dependencies (Optional[Set[str]], optional): Set of stage names that must execute before this stage.
+            Used to determine execution order between stages. Defaults to None.
 
     Returns:
-        Stage: A new Stage instance
+        Stage: A new Stage instance configured with the provided parameters.
+
+    Raises:
+        ValueError: If dependencies contain stage names that don't exist in the pipeline.
     """
     stage = Stage(
         name=name,
@@ -68,46 +85,64 @@ class Pipeline:
     """A generic pipeline class that manages the execution of data processing steps.
 
     The Pipeline class provides functionality to create and execute data processing pipelines
-    by managing a series of interconnected steps. It handles dependency resolution,
+    by managing a series of interconnected steps and stages. It handles dependency resolution,
     execution order, and maintains state throughout the pipeline's lifecycle.
 
     Attributes:
-        name (str): The name of the pipeline
-        steps (Dict[str, Step]): Dictionary mapping step names to Step objects
-        stages (Dict[str, Stage]): Dictionary mapping stage names to Stage objects
-        state (State): Current state of the pipeline (IDLE, RUNNING, COMPLETED, ERROR)
-        current_step (Optional[Step]): Reference to the currently executing step
-        current_stage (Optional[Stage]): Reference to the currently executing stage
-        results (Dict[str, Any]): Dictionary storing the results of each step
-        logger (Logger): Logger instance for pipeline execution logs
+        name (str): The unique identifier of the pipeline.
+        steps (Dict[str, Step]): Dictionary mapping step names to Step objects.
+        stages (Dict[str, Stage]): Dictionary mapping stage names to Stage objects.
+        state (State): Current state of the pipeline (IDLE, RUNNING, COMPLETED, ERROR).
+        current_step (Optional[Step]): Reference to the currently executing step.
+        current_stage (Optional[Stage]): Reference to the currently executing stage.
+        results (Dict[str, Dict[str, Any]]): Dictionary storing the results of each step.
+            Organized as {step_name: {output_name: value}}.
+        logger (logging.Logger): Logger instance for pipeline execution logs.
+
+    Example:
+        >>> pipeline = Pipeline("data_transformer")
+        >>> step1 = create_step("double", "Double input", lambda x: x * 2, ["num"], ["result"])
+        >>> pipeline.add_step(step1)
+        >>> results = pipeline.run(5)
+        >>> print(results["double"]["result"])
+        10
     """
 
-    def __init__(self, name: str):
+    def __init__(self, name: str) -> None:
         """Initialize a new Pipeline instance.
 
         Args:
-            name (str): The name of the pipeline
+            name (str): The unique identifier for the pipeline.
         """
-        self.name = name
+        self.name: str = name
         self.steps: Dict[str, Step] = {}
         self.stages: Dict[str, Stage] = {}
         self.state: State = State.IDLE
         self.current_step: Optional[Step] = None
         self.current_stage: Optional[Stage] = None
-        self.results: Dict[str, Any] = {}
-        self.logger = logging.getLogger(__name__)
+        self.results: Dict[str, Dict[str, Any]] = {}
+        self.logger: logging.Logger = logging.getLogger(__name__)
 
     def add_step(self, step: Step) -> Pipeline:
         """Add a step to the pipeline.
 
+        This method adds a step to the pipeline and validates its dependencies.
+        Steps can be added individually or as part of a stage.
+
         Args:
-            step (Step): The step to add to the pipeline
+            step (Step): The step to add to the pipeline.
+                The step must have a unique name within the pipeline.
 
         Returns:
-            Pipeline: The pipeline instance for method chaining
+            Pipeline: The pipeline instance for method chaining.
 
         Raises:
-            ValueError: If a dependency is specified that doesn't exist in the pipeline
+            ValueError: If a step with the same name already exists or if a dependency
+                is specified that doesn't exist in the pipeline.
+
+        Example:
+            >>> step = create_step("double", "Double input", lambda x: x * 2, ["num"], ["result"])
+            >>> pipeline.add_step(step)
         """
         # Validate dependencies exist
         for dep in step.dependencies:
@@ -120,14 +155,25 @@ class Pipeline:
     def add_stage(self, stage: Stage) -> Pipeline:
         """Add a stage to the pipeline.
 
+        This method adds a stage and all its steps to the pipeline. It validates both
+        stage-level and step-level dependencies.
+
         Args:
-            stage (Stage): The stage to add to the pipeline
+            stage (Stage): The stage to add to the pipeline.
+                The stage and all its steps must have unique names within the pipeline.
 
         Returns:
-            Pipeline: The pipeline instance for method chaining
+            Pipeline: The pipeline instance for method chaining.
 
         Raises:
-            ValueError: If a stage dependency is specified that doesn't exist in the pipeline
+            ValueError: If a stage with the same name already exists, or if any stage
+                or step dependencies are not found in the pipeline.
+
+        Example:
+            >>> steps = [create_step("step1", "Step 1", fn1, ["in1"], ["out1"]),
+            ...         create_step("step2", "Step 2", fn2, ["out1"], ["out2"])]
+            >>> stage = create_stage("process", "Processing stage", steps)
+            >>> pipeline.add_stage(stage)
         """
         # Validate dependencies exist
         for dep in stage.dependencies:
@@ -143,11 +189,24 @@ class Pipeline:
         return self
 
     def _get_execution_order(self) -> List[Union[Step, Stage]]:
-        """Determine the correct execution order based on dependencies."""
-        executed = set()
-        execution_order = []
+        """Determine the correct execution order based on dependencies.
+
+        This method performs a topological sort of the pipeline's stages and steps
+        based on their dependencies to determine the correct execution order.
+
+        Returns:
+            List[Union[Step, Stage]]: A list of stages and steps in the order they
+                should be executed.
+
+        Raises:
+            ValueError: If a circular dependency is detected in the pipeline's stages
+                or steps.
+        """
+        executed: Set[str] = set()
+        execution_order: List[Union[Step, Stage]] = []
 
         def can_execute(item: Union[Step, Stage]) -> bool:
+            """Check if all dependencies for a step or stage have been executed."""
             return all(dep in executed for dep in item.dependencies)
 
         # First handle stages
@@ -188,25 +247,33 @@ class Pipeline:
 
         return execution_order
 
-    def run(self, input_data: Any = None) -> Dict[str, Any]:
+    def run(self, input_data: Optional[T] = None) -> Dict[str, Dict[str, Any]]:
         """Execute the pipeline with the given input data.
 
-        This method executes all steps in the pipeline in dependency order, passing data
-        between steps and handling any errors that occur during execution.
+        This method executes all steps and stages in the pipeline in dependency order,
+        passing data between steps and handling any errors that occur during execution.
 
         Args:
-            input_data (Any, optional): Initial input data to pass to the pipeline. Defaults to None.
+            input_data (Optional[T], optional): Initial input data to pass to the pipeline.
+                This data will be passed to steps that don't have dependencies. Defaults to None.
 
         Returns:
-            Dict[str, Any]: Dictionary containing the results of all pipeline steps, with step names as keys
-                           and their outputs as values.
+            Dict[str, Dict[str, Any]]: Dictionary containing the results of all pipeline steps,
+                organized as {step_name: {output_name: value}}.
 
         Raises:
-            ValueError: If a circular dependency is detected in the pipeline
-            Exception: If any step fails during execution, the original exception is re-raised
+            ValueError: If a circular dependency is detected in the pipeline.
+            Exception: If any step fails during execution, the original exception is re-raised.
+
+        Example:
+            >>> pipeline = Pipeline("math_ops")
+            >>> pipeline.add_step(create_step("double", "Double input", lambda x: x * 2, ["num"], ["result"]))
+            >>> results = pipeline.run(5)
+            >>> print(results["double"]["result"])
+            10
         """
         self.state = State.RUNNING
-        current_data = input_data
+        current_data: Any = input_data
 
         try:
             ordered_items = self._get_execution_order()
@@ -217,16 +284,13 @@ class Pipeline:
                     self.logger.info(f"Executing stage: {item.name}")
                     stage_results = item.execute(current_data)
                     self.results.update(stage_results)
-                    # Pass the output of the stage to the next stage or step
-                    current_data = (
-                        stage_results  # Update current_data to the results of the stage
-                    )
+                    current_data = stage_results
                 else:  # Step
                     self.current_step = item
                     self.logger.info(f"Executing step: {item.name}")
 
                     # Prepare input data based on dependencies and inputs
-                    dep_data = {}
+                    dep_data: Dict[str, Any] = {}
 
                     if item.dependencies:
                         dep_data = {
@@ -272,8 +336,13 @@ class Pipeline:
     def reset(self) -> None:
         """Reset the pipeline to its initial state.
 
-        This method clears all results and resets the state of the pipeline and all its steps
-        back to IDLE, allowing the pipeline to be run again.
+        This method clears all results and resets the state of the pipeline and all its
+        components (steps and stages) back to IDLE, allowing the pipeline to be run again.
+
+        Example:
+            >>> pipeline.run(5)
+            >>> pipeline.reset()
+            >>> pipeline.run(10)  # Run again with different input
         """
         self.state = State.IDLE
         self.current_step = None
@@ -287,20 +356,38 @@ class Pipeline:
     def save(self, storage: StorageBackend) -> None:
         """Save pipeline to storage backend.
 
+        This method persists the pipeline's configuration and state to the specified
+        storage backend for later retrieval.
+
         Args:
-            storage (StorageBackend): Storage backend to save to
+            storage (StorageBackend): Storage backend to save to.
+                The backend must implement the StorageBackend interface.
+
+        Example:
+            >>> from pipeweave.storage import SQLiteStorage
+            >>> storage = SQLiteStorage("pipelines.db")
+            >>> pipeline.save(storage)
         """
         storage.save_pipeline(self)
 
     @classmethod
-    def load(cls, storage: StorageBackend, pipeline_name: str) -> "Pipeline":
+    def load(cls, storage: StorageBackend, pipeline_name: str) -> Pipeline:
         """Load pipeline from storage backend.
 
+        This class method retrieves a previously saved pipeline from the specified
+        storage backend.
+
         Args:
-            storage (StorageBackend): Storage backend to load from
-            pipeline_name (str): Name of pipeline to load
+            storage (StorageBackend): Storage backend to load from.
+                The backend must implement the StorageBackend interface.
+            pipeline_name (str): Name of pipeline to load.
 
         Returns:
-            Pipeline: Loaded pipeline instance
+            Pipeline: Loaded pipeline instance.
+
+        Example:
+            >>> from pipeweave.storage import SQLiteStorage
+            >>> storage = SQLiteStorage("pipelines.db")
+            >>> pipeline = Pipeline.load(storage, "my_pipeline")
         """
         return storage.load_pipeline(pipeline_name)
