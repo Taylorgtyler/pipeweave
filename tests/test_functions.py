@@ -4,3 +4,7 @@ def double_number(x):
 
 def add_one(x):
     return x + 1
+
+
+def format_number(x):
+    return f"Original number: {x}"

@@ -11,6 +11,7 @@ I have tried some popular Python data pipeline libraries, and have found them al
 - 🚀 Simple, intuitive API for creating data pipelines
 - 🔄 Built-in state management using finite state machines
 - 📦 Easy integration of custom functions
+- 🎯 Flexible decorator API with input mapping
 - 💾 Multiple storage backends (SQLite included)
 - 🔍 Pipeline status tracking and monitoring
 - ⚡ Efficient execution with dependency management
@@ -23,22 +24,41 @@ pip install pipeweave
 
 ## Quick Start
 
-Here's a simple example that demonstrates how to create and run a pipeline:
+Here's a simple example that demonstrates how to create and run a pipeline using the decorator API:
+
+```python
+from pipeweave import Pipeline
+
+# Create a pipeline
+pipeline = Pipeline(name="text_processor")
+
+# Define steps using decorators
+@pipeline.step(stage="cleaning")
+def clean_text(text: str) -> str:
+    """Clean text by converting to lowercase and stripping whitespace."""
+    return text.strip().lower()
+
+@pipeline.step(stage="cleaning")
+def count_words(cleaned: str) -> int:
+    """Count words in cleaned text."""
+    return len(cleaned.split())
+
+# Run the pipeline with input text
+text = "  Hello World  "
+results = pipeline.run(text=text)
+# Data flows: "  Hello World  " -> "hello world" -> 2
+
+print(results["clean_text"]["result"])  # "hello world"
+print(results["count_words"]["result"])  # 2
+```
+
+You can also create pipelines using the traditional API:
 
 ```python
 from pipeweave import Pipeline, create_step, create_stage
 
 # Create a pipeline
 pipeline = Pipeline(name="text_processor")
-
-# Define processing functions
-def clean_text(text):
-    """Clean text by converting to lowercase and stripping whitespace."""
-    return text.strip().lower()
-
-def count_words(text):
-    """Count words in cleaned text."""
-    return len(text.split())
 
 # Create a stage with sequential steps
 cleaning_stage = create_stage(
@@ -66,12 +86,7 @@ cleaning_stage = create_stage(
 pipeline.add_stage(cleaning_stage)
 
 # Run the pipeline with input text
-text = "  Hello World  "
-results = pipeline.run(text)
-# Data flows: "  Hello World  " -> "hello world" -> 2
-
-print(results["clean_text"]["cleaned"])  # "hello world"
-print(results["count_words"]["word_count"])  # 2
+results = pipeline.run(text="  Hello World  ")
 ```
 
 ## Core Concepts
@@ -104,6 +119,7 @@ A Pipeline manages the flow of data through steps and stages:
 - Passes data between components automatically
 - Tracks execution state
 - Can be saved and loaded using storage backends
+- Supports both decorator and traditional APIs
 
 ### Storage Backends
 
@@ -113,6 +129,71 @@ Pipeweave supports different storage backends for persisting pipelines:
 
 ## Advanced Usage
 
+### Using the Decorator API
+
+The decorator API provides a clean, intuitive way to create pipelines:
+
+```python
+from pipeweave import Pipeline
+
+pipeline = Pipeline(name="number_processor")
+
+# Define steps with input mapping
+@pipeline.step(stage="math_ops", input_map={"x": "number"})
+def double_number(x: int) -> int:
+    """Double the input number."""
+    return x * 2
+
+@pipeline.step(stage="math_ops", input_map={"doubled": "result"})
+def add_one(doubled: int) -> int:
+    """Add one to the doubled number."""
+    return doubled + 1
+
+@pipeline.step(input_map={"x": "number"})  # Independent step
+def format_number(x: int) -> str:
+    """Format the original number."""
+    return f"Original number: {x}"
+
+# Run pipeline with named input
+results = pipeline.run(number=5)
+# Data flows:
+# - math_ops stage: 5 -> double_number (10) -> add_one (11)
+# - format_number: 5 -> "Original number: 5"
+
+print(results["double_number"]["result"])  # 10
+print(results["add_one"]["result"])  # 11
+print(results["format_number"]["result"])  # "Original number: 5"
+```
+
+### Using Dependencies
+
+You can create complex data flows using explicit dependencies:
+
+```python
+from pipeweave import Pipeline
+
+pipeline = Pipeline(name="dependency_example")
+
+@pipeline.step()
+def generate_number() -> int:
+    """Generate a number."""
+    return 5
+
+@pipeline.step(depends_on=["generate_number"], input_map={"number": "result"})
+def double_number(number: int) -> int:
+    """Double the generated number."""
+    return number * 2
+
+@pipeline.step(depends_on=["double_number"], input_map={"doubled": "result"})
+def add_one(doubled: int) -> int:
+    """Add one to the doubled number."""
+    return doubled + 1
+
+# Run pipeline
+results = pipeline.run()
+# Data flows: generate_number (5) -> double_number (10) -> add_one (11)
+```
+
 ### Using Storage Backends
 ```python
 from pipeweave import Pipeline, create_step
@@ -121,15 +202,10 @@ from pipeweave.storage import SQLiteStorage
 # Create a pipeline
 pipeline = Pipeline(name="data_transformer")
 
-# Add steps
-step = create_step(
-    name="example_step",
-    description="Example step",
-    function=lambda x: x * 2,
-    inputs=["input"],
-    outputs=["output"],
-)
-pipeline.add_step(step)
+# Add steps using decorator
+@pipeline.step()
+def transform(x: int) -> int:
+    return x * 2
 
 # Initialize Storage
 storage = SQLiteStorage("pipelines.db")
@@ -143,92 +219,22 @@ loaded_pipeline = storage.load_pipeline("data_transformer")
 
 ### Error Handling
 ```python
-from pipeweave import Pipeline, create_step, State
-
-# Create pipeline with a step that will fail
-def will_fail(x):
-    raise ValueError("Example error")
-
-error_step = create_step(
-    name="error_step",
-    description="This step will fail",
-    function=will_fail,
-    inputs=["data"],
-    outputs=["result"],
-)
+from pipeweave import Pipeline, State
 
 pipeline = Pipeline(name="error_example")
-pipeline.add_step(error_step)
+
+@pipeline.step()
+def will_fail(x: int) -> int:
+    raise ValueError("Example error")
 
 try:
-    results = pipeline.run(data)
+    results = pipeline.run(x=5)
 except Exception as e:
     # Check state of steps
     for step in pipeline.steps.values():
         if step.state == State.ERROR:
-            print(f"Step {step.name} failed: {step.error}")
+            print(f"Step {step.name} failed")
 ```
-
-### Advanced Data Flow Patterns
-
-Here's an example showing different data flow patterns:
-
-```python
-from pipeweave import Pipeline, create_step, create_stage
-
-# Create a pipeline for processing numbers
-pipeline = Pipeline(name="number_processor")
-
-# Stage 1: Sequential number processing
-math_stage = create_stage(
-    name="math_ops",
-    description="Mathematical operations",
-    steps=[
-        create_step(
-            name="double",
-            description="Double the input",
-            function=lambda x: x * 2,
-            inputs=["number"],
-            outputs=["doubled"],
-        ),
-        create_step(
-            name="add_one",
-            description="Add one to doubled number",
-            function=lambda x: x + 1,
-            inputs=["doubled"],
-            outputs=["result"],
-        ),
-    ],
-)
-
-# Independent step that works with original input
-format_step = create_step(
-    name="format",
-    description="Format the original number",
-    function=lambda x: f"Original number: {x}",
-    inputs=["number"],
-    outputs=["formatted"],
-)
-
-# Add components to pipeline
-pipeline.add_stage(math_stage)
-pipeline.add_step(format_step)
-
-# Run pipeline with input 5
-results = pipeline.run(5)
-# Data flows:
-# - math_stage: 5 -> double (10) -> add_one (11)
-# - format_step: 5 -> "Original number: 5"
-
-print(results["double"]["doubled"])  # 10
-print(results["add_one"]["result"])  # 11
-print(results["format"]["formatted"])  # "Original number: 5"
-```
-
-For independent operations that need to work with the original input data, you can:
-1. Use stages with single steps
-2. Use explicit dependencies (when supported)
-3. Create separate pipelines
 
 ## Contributing
 
@@ -248,7 +254,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Project Status
 
-Pipeweave is currently in alpha. While it's functional and tested, the API may change as we gather user feedback and add new features.
+This project is actively maintained and under development. Current version: 0.4.0
 
 ## Roadmap
 

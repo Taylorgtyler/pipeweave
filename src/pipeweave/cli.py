@@ -120,11 +120,11 @@ def create_pipeline_from_config(config: Dict[str, Any]) -> Pipeline:
     if not isinstance(config, dict):
         raise ValueError("Configuration must be a dictionary")
 
-    required_fields = {"name", "steps"}
+    required_fields = {"name"}
     if not all(field in config for field in required_fields):
         raise ValueError(f"Configuration missing required fields: {required_fields}")
 
-    pipeline = Pipeline(name=config["name"])
+    pipeline = Pipeline(name=config["name"], description=config.get("description", ""))
 
     # Process stages if present
     if "stages" in config:
@@ -151,26 +151,29 @@ def create_pipeline_from_config(config: Dict[str, Any]) -> Pipeline:
             pipeline.add_stage(stage)
 
     # Process individual steps
-    for step_config in config["steps"]:
-        if not isinstance(step_config, dict):
-            raise ValueError(f"Step configuration must be a dictionary: {step_config}")
+    if "steps" in config:
+        for step_config in config["steps"]:
+            if not isinstance(step_config, dict):
+                raise ValueError(
+                    f"Step configuration must be a dictionary: {step_config}"
+                )
 
-        required_step_fields = {"name", "function", "inputs", "outputs"}
-        if not all(field in step_config for field in required_step_fields):
-            raise ValueError(
-                f"Step configuration missing required fields: {required_step_fields}"
+            required_step_fields = {"name", "function", "inputs", "outputs"}
+            if not all(field in step_config for field in required_step_fields):
+                raise ValueError(
+                    f"Step configuration missing required fields: {required_step_fields}"
+                )
+
+            function = import_function(step_config["function"])
+            step = create_step(
+                name=step_config["name"],
+                description=step_config.get("description", ""),
+                function=function,
+                inputs=step_config["inputs"],
+                outputs=step_config["outputs"],
+                dependencies=set(step_config.get("dependencies", [])),
             )
-
-        function = import_function(step_config["function"])
-        step = create_step(
-            name=step_config["name"],
-            description=step_config.get("description", ""),
-            function=function,
-            inputs=step_config["inputs"],
-            outputs=step_config["outputs"],
-            dependencies=set(step_config.get("dependencies", [])),
-        )
-        pipeline.add_step(step)
+            pipeline.add_step(step)
 
     return pipeline
 
@@ -230,9 +233,18 @@ def run(
         pipeline = create_pipeline_from_config(config)
 
         # Load input data if provided
-        input_data_dict = None
+        input_data_dict = {}
         if input_data:
-            input_data_dict = load_data_file(input_data)
+            data = load_data_file(input_data)
+            # If data is not a dictionary, use first input name from first step
+            if not isinstance(data, dict):
+                first_step = next(iter(pipeline.steps.values()))
+                if first_step.inputs:
+                    input_data_dict = {first_step.inputs[0]: data}
+                else:
+                    input_data_dict = {"input": data}
+            else:
+                input_data_dict = data
 
         # Initialize storage if needed
         storage = None
@@ -243,7 +255,7 @@ def run(
         click.echo(f"Running pipeline: {pipeline.name}")
         start_time = datetime.now()
 
-        results = pipeline.run(input_data_dict)
+        results = pipeline.run(**input_data_dict)
 
         duration = (datetime.now() - start_time).total_seconds()
         click.echo(f"Pipeline completed in {duration:.2f} seconds")

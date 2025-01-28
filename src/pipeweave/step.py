@@ -94,16 +94,28 @@ class Step:
         try:
             self.state = State.RUNNING
 
-            # Extract input value if it's a dictionary with a single input
-            if isinstance(data, dict):
-                if len(self.inputs) == 1:
-                    data = data[self.inputs[0]]
-                else:
-                    # If multiple inputs, pass them as kwargs
-                    data = {k: v for k, v in data.items() if k in self.inputs}
+            # Handle no-input functions
+            if not self.inputs:
+                result = self.function()
+            else:
+                # Extract input value if it's a dictionary with a single input
+                if isinstance(data, dict):
+                    if len(self.inputs) == 1:
+                        # Try to get the value by input name first
+                        if self.inputs[0] in data:
+                            data = data[self.inputs[0]]
+                        # If not found, try to get any available value
+                        elif len(data) == 1:
+                            data = next(iter(data.values()))
+                    else:
+                        # If multiple inputs, pass them as kwargs
+                        data = {k: v for k, v in data.items() if k in self.inputs}
 
-            # Execute function
-            result = self.function(data)
+                # Execute function based on input type
+                if isinstance(data, dict):
+                    result = self.function(**data)
+                else:
+                    result = self.function(data)
 
             # Format output
             if isinstance(result, dict):

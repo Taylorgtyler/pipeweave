@@ -1,3 +1,5 @@
+"""Tests for the CLI interface."""
+
 import pytest
 import json
 import yaml
@@ -10,9 +12,7 @@ from pipeweave.cli import (
     save_results,
     import_function,
 )
-from pipeweave.core import Pipeline
-from pipeweave.step import State
-from pipeweave.storage import SQLiteStorage
+from pipeweave import Pipeline, State, SQLiteStorage
 
 
 @pytest.fixture
@@ -26,29 +26,36 @@ def temp_config(tmp_path):
     """Create a temporary pipeline configuration file."""
     config = {
         "name": "test_pipeline",
-        "description": "Test pipeline",
+        "description": "Test sequential data flow",
         "stages": [
             {
-                "name": "stage1",
-                "description": "Test stage",
+                "name": "math_ops",
+                "description": "Mathematical operations",
                 "steps": [
                     {
-                        "name": "step1",
-                        "description": "Test step 1",
+                        "name": "double",
+                        "description": "Double the input",
                         "function": "tests.test_functions.double_number",
-                        "inputs": ["input"],
+                        "inputs": ["number"],
+                        "outputs": ["doubled"],
+                    },
+                    {
+                        "name": "add_one",
+                        "description": "Add one to doubled number",
+                        "function": "tests.test_functions.add_one",
+                        "inputs": ["doubled"],
                         "outputs": ["result"],
-                    }
+                    },
                 ],
             }
         ],
         "steps": [
             {
-                "name": "step2",
-                "description": "Test step 2",
-                "function": "tests.test_functions.add_one",
-                "inputs": ["input"],
-                "outputs": ["result"],
+                "name": "format",
+                "description": "Format the original number",
+                "function": "tests.test_functions.format_number",
+                "inputs": ["number"],
+                "outputs": ["formatted"],
             }
         ],
     }
@@ -62,7 +69,7 @@ def temp_config(tmp_path):
 @pytest.fixture
 def temp_data(tmp_path):
     """Create a temporary input data file."""
-    data = 5  # Just the number, not a dict
+    data = 5  # Raw number input
     data_file = tmp_path / "data.json"
     with open(data_file, "w") as f:
         json.dump(data, f)
@@ -111,7 +118,11 @@ def test_load_data_file_not_found():
 
 def test_save_results(tmp_path):
     """Test saving pipeline results to file."""
-    results = {"step1": {"result": 10}}
+    results = {
+        "double": {"doubled": 10},
+        "add_one": {"result": 11},
+        "format": {"formatted": "Original number: 5"},
+    }
     output_file = tmp_path / "results.yaml"
     save_results(results, str(output_file))
 
@@ -142,6 +153,9 @@ def double_number(x):
 
 def add_one(x):
     return x + 1
+
+def format_number(x):
+    return f"Original number: {x}"
 """
         )
 
@@ -153,6 +167,10 @@ def add_one(x):
     add_fn = import_function("tests.test_functions.add_one")
     assert callable(add_fn)
     assert add_fn(5) == 6
+
+    format_fn = import_function("tests.test_functions.format_number")
+    assert callable(format_fn)
+    assert format_fn(5) == "Original number: 5"
 
 
 def test_import_function_not_found():
@@ -171,6 +189,7 @@ def test_cli_init_config(runner, tmp_path):
     with open(output_file) as f:
         config = yaml.safe_load(f)
     assert "name" in config
+    assert "description" in config
     assert "stages" in config
     assert "steps" in config
 
@@ -195,10 +214,16 @@ def test_cli_run(runner, temp_config, temp_data, tmp_path):
 
     with open(output_file) as f:
         results = json.load(f)
-    assert "step1" in results
-    assert results["step1"]["result"] == 10  # double_number(5)
-    assert "step2" in results
-    assert results["step2"]["result"] == 11  # add_one(10)
+
+    # Check sequential data flow results
+    assert "double" in results
+    assert results["double"]["doubled"] == 10  # 5 * 2
+    assert "add_one" in results
+    assert results["add_one"]["result"] == 11  # 10 + 1
+
+    # Check independent step result
+    assert "format" in results
+    assert results["format"]["formatted"] == "Original number: 5"
 
 
 def test_cli_run_invalid_config(runner):

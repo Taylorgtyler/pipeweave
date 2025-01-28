@@ -121,72 +121,147 @@ class Pipeline:
     def __init__(self, name: str, description: Optional[str] = None):
         self.name = name
         self.description = description
-        self.steps = []
+        self.steps = {}  # Changed from list to dict
         self.stages: Dict[str, Stage] = {}
         self.state = State.IDLE
         self.current_stage: Optional[str] = None
         self.logger: logging.Logger = logging.getLogger(__name__)
 
+    def add_step(self, step: Step) -> None:
+        """Add a step to the pipeline.
+
+        Args:
+            step (Step): Step to add to the pipeline
+        """
+        self.steps[step.name] = step
+
+    def add_stage(self, stage: Stage) -> None:
+        """Add a stage to the pipeline.
+
+        Args:
+            stage (Stage): Stage to add to the pipeline
+        """
+        self.stages[stage.name] = stage
+        # Add steps from stage to pipeline steps
+        for step in stage.steps:
+            self.steps[step.name] = step
+
     def step(
-        self, *, stage: Optional[str] = None, depends_on: Optional[List[str]] = None
+        self,
+        *,
+        stage: Optional[str] = None,
+        depends_on: Optional[List[str]] = None,
+        input_map: Optional[Dict[str, str]] = None,
     ):
-        """Decorator to add a step to the pipeline"""
+        """Decorator to add a step to the pipeline.
+
+        Args:
+            stage (Optional[str]): Name of the stage to add this step to.
+            depends_on (Optional[List[str]]): List of step names this step depends on.
+            input_map (Optional[Dict[str, str]]): Map parameter names to input names.
+                If not provided, parameter names are used as input names.
+
+        Returns:
+            Callable: Decorator function that creates and adds the step.
+        """
 
         def decorator(func: Callable):
-            step_info = {
-                "name": func.__name__,
-                "func": func,
-                "dependencies": depends_on or [],
-                "signature": signature(func),
-                "stage": stage,
-            }
-            self.steps.append(step_info)
+            # Get function signature
+            sig = signature(func)
+            param_names = list(sig.parameters.keys())
+
+            # Map parameter names to input names
+            if input_map:
+                inputs = [input_map.get(param, param) for param in param_names]
+            else:
+                inputs = param_names
+
+            # Create step instance
+            step = Step(
+                name=func.__name__,
+                description=func.__doc__ or "",
+                function=func,
+                inputs=inputs,  # Use mapped input names
+                outputs=["result"],  # Default output name
+                dependencies=set(depends_on or []),
+            )
+
+            # Add to pipeline steps
+            self.steps[step.name] = step
 
             # Add to stage if specified
             if stage:
                 if stage not in self.stages:
-                    self.stages[stage] = Stage(name=stage)
-                if self.stages[stage].steps is None:
-                    self.stages[stage].steps = []
-                self.stages[stage].steps.append(func.__name__)
+                    self.stages[stage] = Stage(name=stage, steps=[])
+                self.stages[stage].steps.append(step)
 
             return func
 
         return decorator
 
-    def run(self, **initial_inputs):
-        """Run the pipeline with given inputs"""
+    def run(self, input_value=None, **initial_inputs):
+        """Run the pipeline with given inputs.
+
+        Args:
+            input_value: Optional single input value. If provided, it will be used as the input
+                for the first parameter of the first step.
+            **initial_inputs: Keyword arguments for named inputs.
+
+        Returns:
+            Dict[str, Dict[str, Any]]: Results from each step, organized by step name.
+        """
         self.state = State.RUNNING
-        results = initial_inputs
+        results = {}  # Store results by step name
+        available_data = initial_inputs.copy()  # Data available for steps to use
+
+        # Handle single input value
+        if input_value is not None:
+            first_step = next(iter(self.steps.values()))
+            if first_step.inputs:
+                available_data[first_step.inputs[0]] = input_value
 
         try:
-            for step in self.steps:
+            # Execute steps in order
+            for step_name, step in self.steps.items():
                 # Update stage state
-                if step["stage"]:
-                    self.current_stage = step["stage"]
-                    self.stages[step["stage"]].state = State.RUNNING
+                if step_name in self.stages:
+                    self.current_stage = step_name
+                    self.stages[step_name].state = State.RUNNING
 
                 # Wait for dependencies
-                if step["dependencies"]:
-                    for dep in step["dependencies"]:
+                if step.dependencies:
+                    for dep in step.dependencies:
                         if dep not in results:
                             raise ValueError(f"Dependency {dep} not satisfied")
+                        # Add dependency results to available data
+                        available_data.update(results[dep])
 
-                # Match function parameters with available results
-                params = {}
-                for param_name in step["signature"].parameters:
-                    if param_name in results:
-                        params[param_name] = results[param_name]
+                # Prepare input data for step
+                step_inputs = {}
+                if step.inputs:  # Only gather inputs if the step expects them
+                    for input_name in step.inputs:
+                        # Look for input in available data
+                        if input_name in available_data:
+                            step_inputs[input_name] = available_data[input_name]
+                        # Look for input in previous step results
+                        else:
+                            for prev_results in results.values():
+                                if input_name in prev_results:
+                                    step_inputs[input_name] = prev_results[input_name]
+                                    break
 
-                # Run the step
-                result = step["func"](**params)
+                # Execute step
+                step_result = step.execute(step_inputs)
 
-                # Store result
-                results[step["name"]] = result
+                # Store results
+                results[step_name] = step_result
+                available_data.update(
+                    step_result
+                )  # Make results available to next steps
 
                 # Update stage state
-                if step["stage"]:
-                    self.stages[step["stage"]].state = State.COMPLETED
+                if step_name in self.stages:
+                    self.stages[step_name].state = State.COMPLETED
 
             self.state = State.COMPLETED
             return results
