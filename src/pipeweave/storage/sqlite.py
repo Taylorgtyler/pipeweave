@@ -1,4 +1,14 @@
-"""SQLite storage backend for pipelines."""
+"""SQLite storage backend for pipelines.
+
+This module provides a SQLite-based storage backend for persisting pipelines.
+It handles serialization and deserialization of pipeline objects, including
+their steps, stages, and execution state.
+
+The storage schema supports the natural data flow design where:
+- Steps within a stage are executed sequentially
+- Each step receives input from the previous step's output
+- Independent steps can work with original input data
+"""
 
 import sqlite3
 import json
@@ -19,6 +29,10 @@ class SQLiteStorage(StorageBackend):
     This class implements pipeline storage using SQLite as the backend database.
     It handles serialization and deserialization of pipeline objects, and provides
     CRUD operations for pipeline management.
+
+    The storage schema supports the pipeline's data flow design where data flows
+    sequentially through steps in a stage, and independent steps can work with
+    the original input data.
 
     Attributes:
         db_path (Path): Path to the SQLite database file
@@ -51,6 +65,7 @@ class SQLiteStorage(StorageBackend):
                 """
                 CREATE TABLE IF NOT EXISTS pipelines (
                     name TEXT PRIMARY KEY,
+                    description TEXT,
                     state TEXT NOT NULL,
                     steps TEXT NOT NULL,
                     stages TEXT NOT NULL,
@@ -82,6 +97,12 @@ class SQLiteStorage(StorageBackend):
 
     def save_pipeline(self, pipeline: "Pipeline") -> None:
         """Save a pipeline to the database.
+
+        This method persists the entire pipeline structure, including:
+        - Pipeline metadata and state
+        - Steps with their inputs, outputs, and dependencies
+        - Stages with their sequential step ordering
+        - Current execution state of all components
 
         Args:
             pipeline (Pipeline): Pipeline instance to save
@@ -122,11 +143,12 @@ class SQLiteStorage(StorageBackend):
             cursor.execute(
                 """
                 INSERT OR REPLACE INTO pipelines (
-                    name, state, steps, stages, updated_at
-                ) VALUES (?, ?, ?, ?, ?)
+                    name, description, state, steps, stages, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
             """,
                 (
                     pipeline.name,
+                    pipeline.description,
                     pipeline.state.name,
                     steps_json,
                     stages_json,
@@ -138,6 +160,12 @@ class SQLiteStorage(StorageBackend):
 
     def load_pipeline(self, name: str) -> "Pipeline":
         """Load a pipeline from the database.
+
+        This method reconstructs the entire pipeline structure, including:
+        - Pipeline metadata and state
+        - Steps with their inputs, outputs, and dependencies
+        - Stages with their sequential step ordering
+        - Previous execution state of all components
 
         Args:
             name (str): Name of pipeline to load
@@ -157,17 +185,18 @@ class SQLiteStorage(StorageBackend):
             cursor = conn.cursor()
 
             cursor.execute(
-                "SELECT state, steps, stages FROM pipelines WHERE name = ?", (name,)
+                "SELECT description, state, steps, stages FROM pipelines WHERE name = ?",
+                (name,),
             )
             row = cursor.fetchone()
 
             if not row:
                 raise ValueError(f"Pipeline '{name}' not found")
 
-            state_name, steps_json, stages_json = row
+            description, state_name, steps_json, stages_json = row
 
             # Create pipeline instance
-            pipeline = Pipeline(name=name)
+            pipeline = Pipeline(name=name, description=description)
             pipeline.state = State[state_name]
 
             # Load steps
@@ -232,8 +261,15 @@ class SQLiteStorage(StorageBackend):
         with self._get_connection() as conn:
             cursor = conn.cursor()
 
-            cursor.execute("SELECT name, state, created_at, updated_at FROM pipelines")
+            cursor.execute(
+                "SELECT name, description, state, created_at, updated_at FROM pipelines"
+            )
             return {
-                row[0]: {"state": row[1], "created_at": row[2], "updated_at": row[3]}
+                row[0]: {
+                    "description": row[1],
+                    "state": row[2],
+                    "created_at": row[3],
+                    "updated_at": row[4],
+                }
                 for row in cursor.fetchall()
             }

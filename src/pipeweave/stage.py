@@ -1,10 +1,18 @@
 from typing import List, Set, Any, Dict, TypeVar, Union, Optional
 from dataclasses import dataclass, field
+from enum import Enum
 
 from .step import Step, State
 
 T = TypeVar("T")  # Type variable for input data
 R = TypeVar("R")  # Type variable for output data
+
+
+class State(Enum):
+    IDLE = "IDLE"
+    RUNNING = "RUNNING"
+    COMPLETED = "COMPLETED"
+    ERROR = "ERROR"
 
 
 @dataclass
@@ -23,6 +31,7 @@ class Stage:
         name (str): Name of the stage.
         description (str): Description of what the stage does.
         steps (List[Step]): List of steps to execute in sequence.
+        dependencies (Set[str]): Set of stage names that must execute before this stage.
         state (State): Current state of the stage.
 
     Example:
@@ -36,8 +45,8 @@ class Stage:
     """
 
     name: str
-    description: str
-    steps: List[Step]
+    description: Optional[str] = None
+    steps: List[Step] = field(default_factory=list)
     dependencies: Set[str] = field(default_factory=set)
     state: State = State.IDLE
 
@@ -100,23 +109,8 @@ class Stage:
                 current_data = {self.steps[0].inputs[0]: current_data}
 
             for step in self.steps:
-                # Prepare input data based on dependencies
-                if step.dependencies:
-                    dep_data = {
-                        output: results[dep][output]
-                        for dep in step.dependencies
-                        for output in next(
-                            s for s in self.steps if s.name == dep
-                        ).outputs
-                        if output in step.inputs
-                    }
-                    if len(step.inputs) == 1 and step.inputs[0] in dep_data:
-                        dep_data = {step.inputs[0]: dep_data[step.inputs[0]]}
-                else:
-                    dep_data = current_data if current_data is not None else {}
-
                 # Execute step and store results
-                step_result = step.execute(dep_data)
+                step_result = step.execute(current_data)
                 if isinstance(step_result, dict):
                     results[step.name] = step_result
                 else:

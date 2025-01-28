@@ -282,16 +282,15 @@ def init_config(output_path: str) -> None:
                         "name": "step1",
                         "description": "First step",
                         "function": "module.function",
-                        "inputs": ["input1"],
-                        "outputs": ["output1"],
+                        "inputs": ["input"],
+                        "outputs": ["result"],
                     },
                     {
                         "name": "step2",
                         "description": "Second step",
                         "function": "module.another_function",
-                        "inputs": ["output1"],
-                        "outputs": ["final_output"],
-                        "dependencies": ["step1"],
+                        "inputs": ["result"],  # Takes output from step1
+                        "outputs": ["final"],
                     },
                 ],
             }
@@ -299,10 +298,10 @@ def init_config(output_path: str) -> None:
         "steps": [
             {
                 "name": "independent_step",
-                "description": "Step outside any stage",
+                "description": "Independent step that works with original input",
                 "function": "module.process",
-                "inputs": ["data"],
-                "outputs": ["result"],
+                "inputs": ["input"],
+                "outputs": ["formatted"],
             }
         ],
     }

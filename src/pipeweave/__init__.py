@@ -1,11 +1,11 @@
 """Pipeweave - A flexible Python data pipeline library."""
 
-from .core import Pipeline
+from .core import Pipeline, create_step, create_stage
 from .step import Step, State
 from .stage import Stage
 from .storage import SQLiteStorage
 
-__version__ = "0.2.1"
+__version__ = "0.3.0"
 
 __all__ = [
     "Pipeline",
@@ -13,4 +13,6 @@ __all__ = [
     "Stage",
     "State",
     "SQLiteStorage",
+    "create_step",
+    "create_stage",
 ]
