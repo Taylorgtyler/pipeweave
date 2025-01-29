@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "pipeweave"
-version = "0.4.0"
+version = "0.4.1"
 description = "A flexible Python data pipeline library using finite state machines for custom data processing workflows"
 authors = ["Taylor Tyler <taylorgtyler@gmail.com>"]
 readme = "README.md"
@@ -15,11 +15,12 @@ classifiers = [
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
 ]
 
 [tool.poetry.dependencies]
-python = "^3.12"
+python = "^3.11"
 streamlit = "^1.40.0"
 pyyaml = "^6.0.2"
 
