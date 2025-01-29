@@ -36,10 +36,3 @@ jobs:
         
       - name: Run Black
         run: poetry run black . --check
-        
-      # Optional: Fail if formatting is needed
-      - name: Check if changes were needed
-        if: failure()
-        run: |
-          echo "::error::Black formatting check failed. Please run 'black .' locally and commit the changes."
-          exit 1
